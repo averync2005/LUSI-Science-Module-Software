@@ -38,4 +38,3 @@ Install required Python libraries before running the scripts:
 ## Notes
 - Scripts require a Raspberry Pi with GPIO access
 - Output is printed to the terminal for monitoring and debugging
-this is a change
