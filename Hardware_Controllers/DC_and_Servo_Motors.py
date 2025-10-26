@@ -29,10 +29,10 @@ import RPi.GPIO as GPIO
 #####################################################################################################################
 
 #GPIO Pins
-motor1Pin = 5
+motor1Pin = 24
 motor2Pin = 6
 servoMotorPin = 27
-sparkSensorPin = 24   # Spark MAX feedback signal pin (input mode)
+#sparkSensorPin = 24   # Spark MAX feedback signal pin (input mode)
 
 #PWM Frequencies
 pwmFrequency_DC = 100
@@ -53,7 +53,7 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setup(motor1Pin, GPIO.OUT)
 GPIO.setup(motor2Pin, GPIO.OUT)
 GPIO.setup(servoMotorPin, GPIO.OUT)
-GPIO.setup(sparkSensorPin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)  # Safe 3.3V input mode
+#GPIO.setup(sparkSensorPin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)  # Safe 3.3V input mode
 
 
 
@@ -228,5 +228,8 @@ finally:
     motor2_pwm.stop()
     servo_pwm.stop()
 
+    del motor1_pwm
+    del motor2_pwm
+    del servo_pwm
     GPIO.cleanup()
     print("Motors stopped, GPIO cleaned up safely.")
