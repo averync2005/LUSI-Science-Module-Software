@@ -22,7 +22,7 @@ import RPi.GPIO as GPIO
 
 #####################################################################################################################
 # Declaring Program Variables
-#   - GPIO pins values for all motors
+#   - GPIO pins values for all motors and sensor inputs
 #   - Default PWM frequencies (in Hz) for different motor types
 #       - DC brushed motors: ~100Hz
 #       - Servo motors: ~50Hz
@@ -32,6 +32,7 @@ import RPi.GPIO as GPIO
 motor1Pin = 5
 motor2Pin = 6
 servoMotorPin = 27
+sparkSensorPin = 24   # Spark MAX feedback signal pin (input mode)
 
 #PWM Frequencies
 pwmFrequency_DC = 100
@@ -45,12 +46,14 @@ pwmFrequency_Servo = 50
 #   - Configure Raspberry Pi GPIO pins as outputs
 #   - These GPIO pins send PWM signals to the motor driver
 #   - The motor driver then regulates the actual power delivered to the DC/servo motors
+#   - The Spark MAX sensor pin is configured as an input for reading encoder or status feedback
 #####################################################################################################################
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(motor1Pin, GPIO.OUT)
 GPIO.setup(motor2Pin, GPIO.OUT)
 GPIO.setup(servoMotorPin, GPIO.OUT)
+GPIO.setup(sparkSensorPin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)  # Safe 3.3V input mode
 
 
 
@@ -62,12 +65,10 @@ GPIO.setup(servoMotorPin, GPIO.OUT)
 #   - All PWM objects are started with a 0% duty cycle (motors and servo off by default)
 #####################################################################################################################
 
-#Assigning PWM objects
 motor1_pwm = GPIO.PWM(motor1Pin, pwmFrequency_DC)
 motor2_pwm = GPIO.PWM(motor2Pin, pwmFrequency_DC)
 servo_pwm = GPIO.PWM(servoMotorPin, pwmFrequency_Servo)
 
-#Starting PWM objects
 motor1_pwm.start(0)
 motor2_pwm.start(0)
 servo_pwm.start(0)
@@ -76,14 +77,20 @@ servo_pwm.start(0)
 
 
 #####################################################################################################################
-# Logging Motor Actions
-#   - Every DC/servo motor is logged with a timestamp
-#   - These logs are printed to the terminal in real time
+# Logging Motor and Sensor Actions
+#   - Every DC/servo motor action is logged with a timestamp
+#   - The Spark MAX sensor pin state can also be monitored in real time
 #####################################################################################################################
 
 def log(msg):
     timestamp = time.strftime("[%H:%M:%S]")
     print(f'{timestamp} {msg}')
+
+def read_spark_sensor():
+    """Reads the state of the Spark MAX feedback pin"""
+    state = GPIO.input(sparkSensorPin)
+    log(f"Spark MAX sensor (GPIO24) state: {state}")
+    return state
 
 
 
@@ -116,9 +123,9 @@ def set_motor(motor, duty, name):
 #####################################################################################################################
 
 def set_servo(angle):
-    if (angle < 0):
+    if angle < 0:
         angle = 0
-    elif (angle > 180):
+    elif angle > 180:
         angle = 180
 
     dutyCycle = angle / 18 + 2
@@ -142,6 +149,7 @@ def set_servo(angle):
 #       - d: Servo moves to 90 degrees
 #       - f: Servo moves to 180 degrees
 #       - s: Stop both motors (0% duty cycle)
+#       - e: Read Spark MAX sensor input
 #       - q: Quit the program
 #####################################################################################################################
 
@@ -156,6 +164,7 @@ def CLI_options():
         "- d: Servo moves to 90 degrees",
         "- f: Servo moves to 180 degrees",
         "- s: Stop both motors (0%% duty cycle)",
+        "- e: Read Spark MAX sensor state (GPIO24)",
         "- q: Quit the program",
     ]
     return "\n".join(lines)
@@ -167,8 +176,8 @@ def CLI(stdscr):
     while True:
         stdscr.clear()
         stdscr.addstr(CLI_options())
-        stdscr.addstr(f"----------------------------------------------")
-        stdscr.addstr(f"Current Motor Status: {msg}")
+        stdscr.addstr("\n----------------------------------------------\n")
+        stdscr.addstr(f"Current Status: {msg}")
         stdscr.refresh()
         key = stdscr.getch()
 
@@ -192,8 +201,12 @@ def CLI(stdscr):
             set_motor(motor1_pwm, 0, "Motor1 Stop")
             set_motor(motor2_pwm, 0, "Motor2 Stop")
             msg = "Stopped"
+        elif key == ord('e'):
+            sensor_state = read_spark_sensor()
+            msg = f"Spark Sensor State: {sensor_state}"
         elif key == ord('q'):
             break
+
         time.sleep(0.1)
 
 
@@ -204,15 +217,16 @@ def CLI(stdscr):
 #   - Runs the CLI in a curses wrapper for safe terminal handling
 #   - Ensures all PWM signals are stopped at the end of the program
 #   - Cleans up GPIO to release the pins
+#   - Explicitly stops PWM before cleanup to prevent lgpio TypeError warnings
 #####################################################################################################################
 
 try:
     curses.wrapper(CLI)
 finally:
-    #Stopping all motors
+    # Stop all PWM outputs before cleanup
     motor1_pwm.stop()
     motor2_pwm.stop()
     servo_pwm.stop()
 
     GPIO.cleanup()
-    print("Motors stopped, GPIO cleaned up.")
+    print("Motors stopped, GPIO cleaned up safely.")
