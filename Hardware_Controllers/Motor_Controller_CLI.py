@@ -38,6 +38,14 @@ servoMotorPin = 27
 pwmFrequency_DC = 100
 pwmFrequency_Servo = 50
 
+#Speed and control parameters
+DEFAULT_START_SPEED = 10     # Default startup duty % (~1550 µs equivalent)
+SPEED_STEP = 5               # Incremental step for adjustments
+motor1_active = False
+motor2_active = False
+motor1_speed = 0
+motor2_speed = 0
+
 
 
 
@@ -88,7 +96,7 @@ def log(msg):
 
 def read_spark_sensor():
     """Reads the state of the Spark MAX feedback pin"""
-    state = GPIO.input(sparkSensorPin)
+    state = 0  # placeholder (GPIO.input(sparkSensorPin))
     log(f"Spark MAX sensor (GPIO24) state: {state}")
     return state
 
@@ -141,69 +149,102 @@ def set_servo(angle):
 # Dynamic CLI for Motor Controlling
 #   - Updates the terminal continuously to show current DC/servo motor states
 #   - Key mappings:
-#       - 1: Motor1 Forward (20% duty cycle)
-#       - 2: Motor1 Backward (10% duty cycle)
-#       - 3: Motor2 Forward (20% duty cycle)
-#       - 4: Motor2 Backward (10% duty cycle)
+#       - 1: Start Motor1 (+10% duty)
+#       - 2: Start Motor2 (+10% duty)
+#       - ↑ / ↓: Increment/Decrement Motor1 by ±5%
+#       - → / ←: Increment/Decrement Motor2 by ±5%
 #       - a: Servo moves to 0 degrees
 #       - d: Servo moves to 90 degrees
 #       - f: Servo moves to 180 degrees
 #       - s: Stop both motors (0% duty cycle)
-#       - e: Read Spark MAX sensor input
 #       - q: Quit the program
 #####################################################################################################################
 
 def CLI_options():
     lines = [
         "Keybind Controls:",
-        "- 1: Motor1 Forward (20%% duty cycle)",
-        "- 2: Motor1 Backward (10%% duty cycle)",
-        "- 3: Motor2 Forward (20%% duty cycle)",
-        "- 4: Motor2 Backward (10%% duty cycle)",
-        "- a: Servo moves to 0 degrees",
-        "- d: Servo moves to 90 degrees",
-        "- f: Servo moves to 180 degrees",
-        "- s: Stop both motors (0%% duty cycle)",
-        "- e: Read Spark MAX sensor state (GPIO24)",
-        "- q: Quit the program",
+        "- 1: Start Motor1 (+10% duty)",
+        "- 2: Start Motor2 (+10% duty)",
+        "- ↑ / ↓ : Motor1 speed ±5 %",
+        "- → / ← : Motor2 speed ±5 %",
+        "- a / d / f : servo to 0°, 90°, 180°",
+        "- s : stop all motors (0% duty)",
+        "- q : quit program",
     ]
     return "\n".join(lines)
 
+
 def CLI(stdscr):
+    global motor1_active, motor2_active, motor1_speed, motor2_speed
     curses.curs_set(0)
     stdscr.nodelay(True)
-    msg = "Idle"
+    stdscr.keypad(True)
+    msg = "Motors inactive. Use 1 or 2 to start."
+
     while True:
         stdscr.clear()
         stdscr.addstr(CLI_options())
         stdscr.addstr("\n----------------------------------------------\n")
-        stdscr.addstr(f"Current Status: {msg}")
+        stdscr.addstr(f"Motor1: {'ACTIVE' if motor1_active else 'INACTIVE'} | {motor1_speed}%\n")
+        stdscr.addstr(f"Motor2: {'ACTIVE' if motor2_active else 'INACTIVE'} | {motor2_speed}%\n")
+        stdscr.addstr("Servo: ready\n")
+        stdscr.addstr("Peristaltic Pump #1 : [reserved]\n")
+        stdscr.addstr("Peristaltic Pump #2 : [reserved]\n")
+        stdscr.addstr(f"Current Action: {msg}")
         stdscr.refresh()
         key = stdscr.getch()
 
-        if key == ord('1'):
-            set_motor(motor1_pwm, 20, "Motor1 Forward")
-            msg = "Motor1 Forward"
-        elif key == ord('2'):
-            set_motor(motor1_pwm, 10, "Motor1 Backward")
-            msg = "Motor1 Backward"
-        elif key == ord('3'):
-            set_motor(motor2_pwm, 20, "Motor2 Forward")
-            msg = "Motor2 Forward"
-        elif key == ord('4'):
-            set_motor(motor2_pwm, 10, "Motor2 Backward")
-            msg = "Motor2 Backward"
+        if key == -1:
+            time.sleep(0.1)
+            continue
+
+        # Manual motor activation
+        if key == ord('1') and not motor1_active:
+            motor1_speed = DEFAULT_START_SPEED
+            set_motor(motor1_pwm, motor1_speed, "Motor1 Started")
+            motor1_active = True
+            msg = "Motor1 started at +10%"
+        elif key == ord('2') and not motor2_active:
+            motor2_speed = DEFAULT_START_SPEED
+            set_motor(motor2_pwm, motor2_speed, "Motor2 Started")
+            motor2_active = True
+            msg = "Motor2 started at +10%"
+
+        # Adjustments (only if active)
+        elif key == curses.KEY_UP and motor1_active:
+            motor1_speed = min(motor1_speed + SPEED_STEP, 100)
+            set_motor(motor1_pwm, motor1_speed, "Motor1 Forward")
+            msg = "Motor1 speed increased"
+        elif key == curses.KEY_DOWN and motor1_active:
+            motor1_speed = max(motor1_speed - SPEED_STEP, 0)
+            set_motor(motor1_pwm, motor1_speed, "Motor1 Backward")
+            msg = "Motor1 speed decreased"
+        elif key == curses.KEY_RIGHT and motor2_active:
+            motor2_speed = min(motor2_speed + SPEED_STEP, 100)
+            set_motor(motor2_pwm, motor2_speed, "Motor2 Forward")
+            msg = "Motor2 speed increased"
+        elif key == curses.KEY_LEFT and motor2_active:
+            motor2_speed = max(motor2_speed - SPEED_STEP, 0)
+            set_motor(motor2_pwm, motor2_speed, "Motor2 Backward")
+            msg = "Motor2 speed decreased"
+
+        # Servo keys
         elif key in (ord('a'), ord('d'), ord('f')):
             angle = {"a": 0, "d": 90, "f": 180}[chr(key)]
             set_servo(angle)
             msg = f"Servo {angle}°"
+
+        # Stop all motors
         elif key == ord('s'):
             set_motor(motor1_pwm, 0, "Motor1 Stop")
             set_motor(motor2_pwm, 0, "Motor2 Stop")
-            msg = "Stopped"
-        elif key == ord('e'):
-            sensor_state = read_spark_sensor()
-            msg = f"Spark Sensor State: {sensor_state}"
+            motor1_active = False
+            motor2_active = False
+            motor1_speed = 0
+            motor2_speed = 0
+            msg = "Motors stopped and set to 0%"
+
+        # Quit program
         elif key == ord('q'):
             break
 
