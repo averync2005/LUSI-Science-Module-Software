@@ -9,13 +9,22 @@ The scripts are designed to run on a Raspberry Pi and provide interfaces for act
 
 ### Motor Controller
 Run with:
-python Hardware_Controllers/motor_controller.py
+python Hardware_Controllers/Motor_Controller_CLI.py
 
-Controls:
-- 1/2 → Motor1 forward/backward
-- 3/4 → Motor2 forward/backward
-- a/d/f → Servo to 0°, 90°, 180°
-- s → Stop all motors
+Controls 4 motors via an interactive terminal interface:
+
+Motors:
+- Motor 1: Auger (NEO 550 via Spark MAX) — digs soil, forward only
+- Motor 2: Platform (NEO 550 via Spark MAX) — raises/lowers platform, bidirectional
+- Motor 3: Chamber Lid (SM-S2309S servo) — rotates testing chamber lid
+- Motor 4: Soil Dropper (SG92R micro servo) — rotates soil dropper lid
+
+Keybinds:
+- 1/2/3/4 → Select a motor
+- ENTER → Activate the selected motor
+- ↑ / ↓ → Speed ±5% (NEO 550) or angle ±1° (servos)
+- r → Reverse direction (Platform motor only)
+- x → Stop all motors immediately
 - q → Quit program
 
 ### Mass Sensor Controller
