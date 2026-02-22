@@ -245,8 +245,11 @@ h3. 7.5 Install Required Python Libraries
 
 {code}
 pip install RPi.GPIO
+pip install pigpio
 pip install git+https://github.com/tatobari/hx711py.git
 {code}
+
+{{pigpio}} provides hardware-timed PWM for the motor controller. The {{pigpio}} daemon must be running before launching the motor controller script (see section 8.1).
 
 *Camera and serial port dependencies* (required for ELP camera and serial port scripts):
 
@@ -261,7 +264,7 @@ h3. 7.6 Verify Installation
 pip list
 {code}
 
-You should see {{RPi.GPIO}}, {{hx711}}, {{opencv-python}}, and {{pyserial}} in the list.
+You should see {{RPi.GPIO}}, {{pigpio}}, {{hx711}}, {{opencv-python}}, and {{pyserial}} in the list.
 
 h3. 7.7 (Optional) Save / Restore the Environment
 
@@ -291,7 +294,13 @@ The Motor Controller CLI controls 4 motors on the LUSI Science Module:
 
 h3. 8.1 Running the Motor Controller
 
-Make sure you are in the project root directory with the virtual environment activated:
+The motor controller uses {{pigpio}} for hardware-timed PWM. Start the pigpio daemon first (only needs to be done once per boot):
+
+{code}
+sudo pigpiod
+{code}
+
+Then make sure you are in the project root directory with the virtual environment activated:
 
 {code}
 cd ~/Desktop/LUSI-Science-Module

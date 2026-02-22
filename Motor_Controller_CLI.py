@@ -13,7 +13,7 @@
 # How the CLI works:
 #   1. The command menu and motor list reprint before every prompt
 #   2. Type a motor number (1-4) to select it and enter a speed or angle
-#   3. The program automatically calculates the correct PWM duty cycle and applies it
+#   3. The program automatically calculates the correct PWM pulse width and applies it
 #   4. Setting a NEO 550 motor to 0% speed automatically turns it off
 #   5. Setting a servo to 0° moves it to the 0° position (resets the angle)
 #
@@ -46,14 +46,17 @@
 #   - time:
 #       - Adds small delays so the program doesn't hog the CPU
 #       - Gives servos time to physically reach their target angle
-#   - RPi.GPIO:
-#       - Controls the Raspberry Pi's GPIO (General Purpose Input/Output) pins
-#       - Configures pins as outputs so we can send PWM signals
-#       - PWM (Pulse Width Modulation) signals tell the Spark MAX and servos what to do
+#   - pigpio:
+#       - Controls the Raspberry Pi's GPIO pins with hardware-timed PWM
+#       - Unlike RPi.GPIO (which uses software-timed PWM), pigpio uses the Pi's
+#         DMA (Direct Memory Access) hardware to generate precise pulse widths
+#       - This is critical for servos, which need microsecond-accurate pulses
+#         to translate commanded angles into actual shaft positions
+#       - Requires the pigpio daemon to be running: sudo pigpiod
 #####################################################################################################################
 
 import time
-import RPi.GPIO as GPIO
+import pigpio
 
 
 
@@ -74,34 +77,36 @@ SOIL_DROP_PIN = 19  # SG92R micro servo --> GPIO 19
 
 
 #####################################################################################################################
-# PWM Configuration
-#   - All four motors use 50 Hz PWM (one pulse every 20 ms)
-#   - 50 Hz is the standard for both hobby servos and the REV Spark MAX
+# PWM Pulse Width Configuration (microseconds)
+#   - pigpio controls motors by setting the pulse width directly in microseconds
+#   - This is more precise than RPi.GPIO's duty-cycle percentages because pigpio
+#     uses DMA hardware instead of software timers
 #
-# How the Spark MAX interprets the PWM signal (NEO 550 motors):
-#   - The Spark MAX reads the width of each pulse (in microseconds):
+# How the Spark MAX interprets the pulse width (NEO 550 motors):
+#   - The Spark MAX reads the width of each pulse:
 #       1000 µs --> full reverse
 #       1500 µs --> neutral / stop
 #       2000 µs --> full forward
-#   - At 50 Hz the period is 20 000 µs, so duty-cycle percentages are:
-#       5.0 % --> 1000 µs --> full reverse
-#       7.5 % --> 1500 µs --> neutral
-#      10.0 % --> 2000 µs --> full forward
 #
-# How standard servos interpret the PWM signal:
+# How standard servos interpret the pulse width:
 #   - Pulse width maps to shaft angle:
-#       ~500 µs (2.5 %) --> 0°
-#      ~1500 µs (7.5 %) --> 90°
-#      ~2500 µs (12.5 %) --> 180°
-#   - The formula used here: duty% = (angle / 18) + 2.5
+#       500 µs --> 0°
+#      1500 µs --> 90°
+#      2500 µs --> 180°
+#   - The formula used here: pulseWidth = 500 + (angle / 180) × 2000
+#   - If your servo doesn't reach the full range, adjust SERVO_MIN_US and
+#     SERVO_MAX_US until 0° and 180° match the physical positions
 #####################################################################################################################
 
-PWM_FREQUENCY = 50  # 50 Hz for Spark MAX and hobby servos
+# Spark MAX pulse width boundaries (microseconds)
+SPARK_NEUTRAL_US = 1500  # Motor stopped
+SPARK_MAX_FWD_US = 2000  # Full speed forward
+SPARK_MAX_REV_US = 1000  # Full speed reverse
 
-# Spark MAX duty-cycle boundaries (percent)
-SPARK_NEUTRAL = 7.5  # 1500 µs - motor stopped
-SPARK_MAX_FWD = 10.0  # 2000 µs - full speed forward
-SPARK_MAX_REV = 5.0  # 1000 µs - full speed reverse
+# Servo pulse width boundaries (microseconds)
+# Adjust these if your servos don't reach the full 0-180° range
+SERVO_MIN_US = 500  # 0° position
+SERVO_MAX_US = 2500  # 180° position
 
 
 
@@ -137,107 +142,104 @@ soilDropAngle = 0  # 0-180°
 
 
 #####################################################################################################################
-# GPIO Setup
-#   - Tell the Pi we are using BCM pin numbering
-#   - Configure each motor pin as an output (we send signals OUT to the motors)
+# pigpio Daemon Connection
+#   - pigpio works by connecting to a daemon (background process) that controls
+#     the GPIO pins using the Pi's DMA hardware
+#   - The daemon must be started before running this script: sudo pigpiod
+#   - pi.connected will be False if the daemon is not running
 #####################################################################################################################
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(AUGER_PIN, GPIO.OUT)
-GPIO.setup(PLATFORM_PIN, GPIO.OUT)
-GPIO.setup(CHAMBER_LID_PIN, GPIO.OUT)
-GPIO.setup(SOIL_DROP_PIN, GPIO.OUT)
-
-
-
-
-#####################################################################################################################
-# Initializing PWM Objects
-#   - Create a PWM object for each motor pin at 50 Hz
-#   - Start each PWM output at the appropriate "off" duty cycle:
-#       - Spark MAX motors start at 7.5 % (neutral / stopped)
-#       - Servos start at 0 % (signal off - holds last position or relaxes)
-#####################################################################################################################
-
-pwmAuger = GPIO.PWM(AUGER_PIN, PWM_FREQUENCY)
-pwmPlatform = GPIO.PWM(PLATFORM_PIN, PWM_FREQUENCY)
-pwmChamberLid = GPIO.PWM(CHAMBER_LID_PIN, PWM_FREQUENCY)
-pwmSoilDrop = GPIO.PWM(SOIL_DROP_PIN, PWM_FREQUENCY)
-
-pwmAuger.start(SPARK_NEUTRAL)  # NEO 550 - start at neutral
-pwmPlatform.start(SPARK_NEUTRAL)  # NEO 550 - start at neutral
-pwmChamberLid.start(0)  # Servo - signal off
-pwmSoilDrop.start(0)  # Servo - signal off
+pi = pigpio.pi()  # Connect to the local pigpio daemon
+if not pi.connected:
+    print("[ERROR] Cannot connect to pigpio daemon. Start it with: sudo pigpiod")
+    exit(1)
 
 
 
 
 #####################################################################################################################
-# Helper Function - Convert Speed % to Spark MAX Duty Cycle
+# Initializing Motor Signals
+#   - Send the "off" signal to each motor pin on startup:
+#       - Spark MAX motors get 1500 µs (neutral / stopped)
+#       - Servos get 0 µs (no signal - holds last position or relaxes)
+#   - pigpio.set_servo_pulsewidth() sends a 50 Hz PWM signal with the specified
+#     pulse width in microseconds - this is the standard servo/ESC control method
+#####################################################################################################################
+
+pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)  # NEO 550 - start at neutral
+pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)  # NEO 550 - start at neutral
+pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)  # Servo - signal off
+pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)  # Servo - signal off
+
+
+
+
+#####################################################################################################################
+# Helper Function - Convert Speed % to Spark MAX Pulse Width
 #
 #   Parameters:
 #       speedPct (int) - motor speed as a percentage, 0 to 100
 #       direction (str) - "forward" or "reverse"
 #
 #   Returns:
-#       float - the PWM duty-cycle percentage to send to the Spark MAX
+#       int - the pulse width in microseconds to send to the Spark MAX
 #
 #   How it works:
-#       Forward: duty = 7.5 + (speed / 100) × 2.5 --> 7.5 % (stop) to 10.0 % (full forward)
-#       Reverse: duty = 7.5 - (speed / 100) × 2.5 --> 7.5 % (stop) to 5.0 % (full reverse)
+#       Forward: pulseWidth = 1500 + (speed / 100) × 500 --> 1500 µs (stop) to 2000 µs (full forward)
+#       Reverse: pulseWidth = 1500 - (speed / 100) × 500 --> 1500 µs (stop) to 1000 µs (full reverse)
 #####################################################################################################################
 
-def speedToSparkDuty(speedPct, direction="forward"):
-    """Convert a speed percentage and direction to a Spark MAX duty-cycle value."""
+def speedToPulseWidth(speedPct, direction="forward"):
+    """Convert a speed percentage and direction to a Spark MAX pulse width in µs."""
     if direction == "forward":
-        return SPARK_NEUTRAL + (speedPct / 100.0) * (SPARK_MAX_FWD - SPARK_NEUTRAL)
+        return SPARK_NEUTRAL_US + (speedPct / 100.0) * (SPARK_MAX_FWD_US - SPARK_NEUTRAL_US)
     else:
-        return SPARK_NEUTRAL - (speedPct / 100.0) * (SPARK_NEUTRAL - SPARK_MAX_REV)
+        return SPARK_NEUTRAL_US - (speedPct / 100.0) * (SPARK_NEUTRAL_US - SPARK_MAX_REV_US)
 
 
 
 
 #####################################################################################################################
-# Helper Function - Convert Angle to Servo Duty Cycle
+# Helper Function - Convert Angle to Servo Pulse Width
 #
 #   Parameters:
 #       angle (int) - desired servo angle in degrees, 0 to 180
 #
 #   Returns:
-#       float - the PWM duty-cycle percentage to send to the servo
+#       int - the pulse width in microseconds to send to the servo
 #
 #   How it works:
-#       duty = (angle / 18) + 2.5
-#       This maps 0° --> 2.5 %, 90° --> 7.5 %, 180° --> 12.5 %
+#       pulseWidth = 500 + (angle / 180) × 2000
+#       This maps 0° --> 500 µs, 90° --> 1500 µs, 180° --> 2500 µs
 #####################################################################################################################
 
-def angleToServoDuty(angle):
-    """Convert an angle in degrees to a servo PWM duty-cycle value."""
+def angleToPulseWidth(angle):
+    """Convert an angle in degrees to a servo pulse width in µs."""
     angle = max(0, min(180, angle))  # Clamp the angle to the valid range
-    return (angle / 18.0) + 2.5
+    return SERVO_MIN_US + (angle / 180.0) * (SERVO_MAX_US - SERVO_MIN_US)
 
 
 
 
 #####################################################################################################################
 # Motor Control Functions
-#   - setSparkMotor(): sends the correct duty cycle to a Spark MAX (NEO 550)
-#   - setServoAngle(): sends the correct duty cycle to a hobby servo
+#   - setSparkMotor(): sends the correct pulse width to a Spark MAX (NEO 550)
+#   - setServoAngle(): sends the correct pulse width to a hobby servo
 #   - stopAllMotors(): immediately stops every motor and resets all state
 #   - stopSingleMotor(): stops one motor by number and resets its state
 #####################################################################################################################
 
-def setSparkMotor(pwmObj, speedPct, direction="forward"):
+def setSparkMotor(pin, speedPct, direction="forward"):
     """Send a speed command to a NEO 550 motor via its Spark MAX controller."""
-    duty = speedToSparkDuty(speedPct, direction)
-    pwmObj.ChangeDutyCycle(duty)
+    pulseWidth = speedToPulseWidth(speedPct, direction)
+    pi.set_servo_pulsewidth(pin, pulseWidth)
 
 
-def setServoAngle(pwmObj, angle):
+def setServoAngle(pin, angle):
     """Move a servo motor to the specified angle (0-180°)."""
     angle = max(0, min(180, angle))
-    duty = angleToServoDuty(angle)
-    pwmObj.ChangeDutyCycle(duty)
+    pulseWidth = angleToPulseWidth(angle)
+    pi.set_servo_pulsewidth(pin, pulseWidth)
 
 
 def stopAllMotors():
@@ -248,12 +250,12 @@ def stopAllMotors():
     global soilDropActive, soilDropAngle
 
     # Send neutral signal to Spark MAX controllers (stops the NEO 550s)
-    pwmAuger.ChangeDutyCycle(SPARK_NEUTRAL)
-    pwmPlatform.ChangeDutyCycle(SPARK_NEUTRAL)
+    pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)
+    pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
 
     # Turn off servo PWM signals (servos will hold last position or relax)
-    pwmChamberLid.ChangeDutyCycle(0)
-    pwmSoilDrop.ChangeDutyCycle(0)
+    pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
+    pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
 
     # Reset state
     augerActive = False
@@ -278,26 +280,26 @@ def stopSingleMotor(motorNum):
     global soilDropActive, soilDropAngle
 
     if motorNum == 1:
-        pwmAuger.ChangeDutyCycle(SPARK_NEUTRAL)
+        pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)
         augerActive = False
         augerSpeed = 0
         print("[INFO] Auger Motor stopped.")
 
     elif motorNum == 2:
-        pwmPlatform.ChangeDutyCycle(SPARK_NEUTRAL)
+        pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
         platformActive = False
         platformSpeed = 0
         platformDirection = "up"
         print("[INFO] Platform Motor stopped.")
 
     elif motorNum == 3:
-        pwmChamberLid.ChangeDutyCycle(0)
+        pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
         chamberLidActive = False
         chamberLidAngle = 0
         print("[INFO] Chamber Lid Servo stopped.")
 
     elif motorNum == 4:
-        pwmSoilDrop.ChangeDutyCycle(0)
+        pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
         soilDropActive = False
         soilDropAngle = 0
         print("[INFO] Soil Dropper Servo stopped.")
@@ -433,7 +435,7 @@ def handleMotorCommand(motorNum):
 
         augerActive = True
         augerSpeed = speed
-        setSparkMotor(pwmAuger, augerSpeed, "forward")
+        setSparkMotor(AUGER_PIN, augerSpeed, "forward")
         infoLine = f"[INFO] Auger speed set to {augerSpeed}%"
         print(infoLine)
 
@@ -480,7 +482,7 @@ def handleMotorCommand(motorNum):
         platformSpeed = speed
         platformDirection = direction
         sparkDir = "forward" if platformDirection == "up" else "reverse"
-        setSparkMotor(pwmPlatform, platformSpeed, sparkDir)
+        setSparkMotor(PLATFORM_PIN, platformSpeed, sparkDir)
         infoLine = f"[INFO] Platform speed set to {platformSpeed}% ({platformDirection.upper()})"
         print(infoLine)
 
@@ -506,7 +508,7 @@ def handleMotorCommand(motorNum):
 
         chamberLidActive = True
         chamberLidAngle = angle
-        setServoAngle(pwmChamberLid, chamberLidAngle)
+        setServoAngle(CHAMBER_LID_PIN, chamberLidAngle)
         infoLine = f"[INFO] Chamber Lid angle set to {chamberLidAngle}°"
         print(infoLine)
 
@@ -532,7 +534,7 @@ def handleMotorCommand(motorNum):
 
         soilDropActive = True
         soilDropAngle = angle
-        setServoAngle(pwmSoilDrop, soilDropAngle)
+        setServoAngle(SOIL_DROP_PIN, soilDropAngle)
         infoLine = f"[INFO] Soil Dropper angle set to {soilDropAngle}°"
         print(infoLine)
 
@@ -662,9 +664,9 @@ def main():
 #####################################################################################################################
 # Main Execution and Cleanup
 #   - Runs the main CLI loop
-#   - The "finally" block ensures all PWM signals are stopped and GPIO pins are released
-#     even if the program crashes or is interrupted
-#   - We send neutral (7.5%) to the Spark MAX controllers before stopping PWM
+#   - The "finally" block ensures all PWM signals are stopped and the pigpio
+#     connection is released, even if the program crashes or is interrupted
+#   - We send neutral (1500 µs) to the Spark MAX controllers before disconnecting
 #     so the NEO 550 motors don't get an unexpected signal during shutdown
 #####################################################################################################################
 
@@ -672,24 +674,12 @@ try:
     main()
 finally:
     # Send neutral / off signals before shutting down
-    pwmAuger.ChangeDutyCycle(SPARK_NEUTRAL)
-    pwmPlatform.ChangeDutyCycle(SPARK_NEUTRAL)
-    pwmChamberLid.ChangeDutyCycle(0)
-    pwmSoilDrop.ChangeDutyCycle(0)
+    pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)
+    pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
+    pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
+    pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
     time.sleep(0.1)  # Brief pause to let the signals settle
 
-    # Stop all PWM outputs
-    pwmAuger.stop()
-    pwmPlatform.stop()
-    pwmChamberLid.stop()
-    pwmSoilDrop.stop()
-
-    # Release PWM objects
-    del pwmAuger
-    del pwmPlatform
-    del pwmChamberLid
-    del pwmSoilDrop
-
-    # Release all GPIO pins back to the system
-    GPIO.cleanup()
+    # Disconnect from the pigpio daemon and release all GPIO resources
+    pi.stop()
     print("[INFO] All motors stopped. GPIO cleaned up safely.")

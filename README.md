@@ -7,6 +7,7 @@ The scripts are designed to run on a Raspberry Pi and provide interfaces for act
 
 ## Motor Controller
 Run with:
+sudo pigpiod              # start the pigpio daemon (once per boot)
 python Motor_Controller_CLI.py
 
 Controls 4 motors via a command-line interface. The command menu and motor list reprint before every prompt.
@@ -64,6 +65,7 @@ pip install -r requirements.txt
 
 Or individually:
 - pip install RPi.GPIO
+- pip install pigpio
 - pip install git+https://github.com/tatobari/hx711py.git
 - pip install opencv-python
 - pip install pyserial
