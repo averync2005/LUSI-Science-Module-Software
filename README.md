@@ -9,27 +9,17 @@ The scripts are designed to run on a Raspberry Pi and provide interfaces for act
 Run with:
 python Motor_Controller_CLI.py
 
-Controls 4 motors via an interactive terminal interface:
+Controls 4 motors via a menu-driven command interface. Type a command at the prompt, then follow the prompts to select a motor and enter a value.
 
-Motors:
-- Motor 1: Auger (NEO 550 via Spark MAX) - digs soil, forward only
-- Motor 2: Platform (NEO 550 via Spark MAX) - raises/lowers platform, bidirectional
-- Motor 3: Chamber Lid (SM-S2309S servo) - rotates testing chamber lid
-- Motor 4: Soil Dropper (SG92R micro servo) - rotates soil dropper lid
-
-GPIO Pin Assignments (BCM):
-- Auger --> GPIO 12
-- Platform --> GPIO 13
-- Chamber Lid --> GPIO 18
-- Soil Dropper --> GPIO 19
-
-Keybinds:
-- 1/2/3/4 --> Select a motor
-- ENTER --> Activate the selected motor
-- UP / DOWN --> Speed +/-5% (NEO 550) or angle +/-1° (servos)
-- r --> Reverse direction (Platform motor only)
-- x --> Stop all motors immediately
+Main Menu:
+- set --> Select a motor, then type a speed (0-100%) or angle (0-180°)
+- off --> Turn off a single motor (prompts for motor number)
+- stop / x --> Stop all motors immediately
+- status / s --> Show motor status
+- help / h --> Show the main menu
 - q --> Quit program
+
+Setting a motor to 0% speed or 0° angle automatically turns it off.
 
 ---
 

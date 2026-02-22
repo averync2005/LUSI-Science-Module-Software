@@ -7,8 +7,15 @@
 #####################################################################################################################
 # LUSI Science Module - Motor Controller CLI
 #
-# This script provides a terminal-based command-line interface for controlling the 4 motors on the LUSI Science Module.
+# This script provides a menu-driven command-line interface for controlling the 4 motors on the LUSI Science Module.
 # It runs on a Raspberry Pi and communicates over Ethernet to the base station computer.
+#
+# How the CLI works:
+#   1. A main menu shows available actions (set, off, stop, status, help, quit)
+#   2. Typing "set" shows the motor list and asks you to pick one (1-4)
+#   3. You then type a speed percentage (0-100%) or angle (0-180°)
+#   4. The program automatically calculates the correct PWM duty cycle and applies it
+#   5. Setting a motor to 0% speed or 0° angle automatically turns it off
 #
 # Motors:
 #   1. Auger Motor
@@ -20,15 +27,15 @@
 #     - NEO 550 (via REV Spark MAX)
 #     - Raises/lowers the soil collection platform
 #     - Gearbox: 2× 3:1 + 1× 4:1 UltraPlanetary = 36:1 total reduction
-#     - Direction: forward (up) AND reverse (down)
+#     - Direction: forward (up) AND reverse (down) - prompted when selected
 #   3. Testing Chamber Lid
 #     - SM-S2309S servo
-#     - rotates the lid of the testing chamber
-#     - Range: 0-180°, ±1° fine control
+#     - Rotates the lid of the testing chamber
+#     - Range: 0-180°
 #   4. Soil Dropper
 #     - SG92R micro servo
 #     - Rotates a lid that drops collected soil
-#     - Range: 0-180°, ±1° fine control
+#     - Range: 0-180°
 #####################################################################################################################
 
 
@@ -39,10 +46,6 @@
 #   - time:
 #       - Adds small delays so the program doesn't hog the CPU
 #       - Gives servos time to physically reach their target angle
-#   - curses:
-#       - Handles live key presses without needing to press "Enter"
-#       - Redraws the terminal display in real time
-#       - Enables an interactive CLI (command-line interface)
 #   - RPi.GPIO:
 #       - Controls the Raspberry Pi's GPIO (General Purpose Input/Output) pins
 #       - Configures pins as outputs so we can send PWM signals
@@ -50,7 +53,6 @@
 #####################################################################################################################
 
 import time
-import curses
 import RPi.GPIO as GPIO
 
 
@@ -101,23 +103,18 @@ SPARK_NEUTRAL = 7.5  # 1500 µs - motor stopped
 SPARK_MAX_FWD = 10.0  # 2000 µs - full speed forward
 SPARK_MAX_REV = 5.0  # 1000 µs - full speed reverse
 
-# Speed/angle adjustment step sizes
-SPEED_STEP = 5  # Each key press changes speed by ±5 %
-ANGLE_STEP = 1  # Each key press changes angle by ±1°
-
 
 
 
 #####################################################################################################################
 # Motor State Variables
 #   - These keep track of whether each motor is active and its current speed/angle
-#   - "selectedMotor" tracks which motor the user is currently controlling (1-4)
 #   - NEO 550 motors store speed as a percentage (0-100 %)
 #   - Servos store angle in degrees (0-180°)
 #   - Platform motor also stores its current direction ("up" or "down")
+#   - A motor is "active" once you send it a command - it stays active until you
+#     explicitly turn it off with "off <number>" or "stop"
 #####################################################################################################################
-
-selectedMotor = None  # Which motor is currently selected (1, 2, 3, or 4)
 
 # Motor 1 - Auger (forward only)
 augerActive = False
@@ -227,6 +224,7 @@ def angleToServoDuty(angle):
 #   - setSparkMotor(): sends the correct duty cycle to a Spark MAX (NEO 550)
 #   - setServoAngle(): sends the correct duty cycle to a hobby servo
 #   - stopAllMotors(): immediately stops every motor and resets all state
+#   - stopSingleMotor(): stops one motor by number and resets its state
 #####################################################################################################################
 
 def setSparkMotor(pwmObj, speedPct, direction="forward"):
@@ -272,265 +270,440 @@ def stopAllMotors():
     soilDropAngle = 0
 
 
-
-
-#####################################################################################################################
-# CLI Display - Build the Text Shown in the Terminal
-#   - Shows the current keybind controls at the top
-#   - Shows the status of all four motors
-#   - Highlights which motor is currently selected with ">>>"
-#   - Shows the most recent action / message at the bottom
-#####################################################################################################################
-
-def buildDisplay(msg):
-    """Return a single string that makes up the full terminal display."""
-
-    # Selection indicator helper
-    def sel(motorNum):
-        return ">>>" if selectedMotor == motorNum else "   "
-
-    lines = []
-
-    # Title
-    lines.append("=" * 62)
-    lines.append("  LUSI Science Module - Motor Controller")
-    lines.append("=" * 62)
-    lines.append("")
-
-    # Keybind reference
-    lines.append("  Keybind Controls:")
-    lines.append("    1-4     Select a motor")
-    lines.append("    ENTER   Start / activate the selected motor")
-    lines.append("    UP/DOWN Speed +/- 5% (NEO 550) / Angle +/- 1° (Servos)")
-    lines.append("    r       Reverse direction (Platform motor only)")
-    lines.append("    x       STOP all motors immediately")
-    lines.append("    q       Quit program")
-    lines.append("")
-
-    # Divider
-    lines.append("-" * 62)
-    lines.append("")
-
-    # Motor 1 - Auger
-    augerStatus = "ON" if augerActive else "OFF"
-    augerLine = f"{sel(1)} [1] Auger Motor (NEO 550) | {augerStatus} | Speed: {augerSpeed:3d}%"
-    lines.append(augerLine)
-
-    # Motor 2 - Platform
-    platformStatus = "ON" if platformActive else "OFF"
-    dirStr = platformDirection.upper() if platformActive else "--"
-    platformLine = f"{sel(2)} [2] Platform Motor (NEO 550) | {platformStatus} | Speed: {platformSpeed:3d}% | Dir: {dirStr}"
-    lines.append(platformLine)
-
-    # Motor 3 - Chamber Lid
-    chamberStatus = "ON" if chamberLidActive else "OFF"
-    chamberLine = f"{sel(3)} [3] Chamber Lid (SM-S2309S) | {chamberStatus} | Angle: {chamberLidAngle:3d}°"
-    lines.append(chamberLine)
-
-    # Motor 4 - Soil Dropper
-    dropperStatus = "ON" if soilDropActive else "OFF"
-    dropperLine = f"{sel(4)} [4] Soil Dropper (SG92R) | {dropperStatus} | Angle: {soilDropAngle:3d}°"
-    lines.append(dropperLine)
-
-    lines.append("")
-    lines.append("-" * 62)
-    msgLine = f">> {msg}"
-    lines.append(msgLine)
-
-    return "\n".join(lines)
-
-
-
-
-#####################################################################################################################
-# Main CLI Loop (runs inside curses)
-#
-#   How it works:
-#       1. The terminal is cleared and redrawn every loop iteration
-#       2. The program waits for a key press (non-blocking, checked every 100 ms)
-#       3. Depending on the key, the program:
-#           - Selects a motor (1-4)
-#           - Activates the selected motor (Enter)
-#           - Adjusts speed or angle (Up/Down arrow keys)
-#           - Reverses the platform motor direction (r)
-#           - Stops all motors (x)
-#           - Quits the program (q)
-#       4. After handling the key, the display is refreshed to show updated state
-#####################################################################################################################
-
-def main(stdscr):
-    global selectedMotor
+def stopSingleMotor(motorNum):
+    """Stop one motor by its number (1-4) and reset its state."""
     global augerActive, augerSpeed
     global platformActive, platformSpeed, platformDirection
     global chamberLidActive, chamberLidAngle
     global soilDropActive, soilDropAngle
 
-    # Configure curses
-    curses.curs_set(0)  # Hide the blinking cursor
-    stdscr.nodelay(True)  # Don't block waiting for input - let us redraw the screen
-    stdscr.keypad(True)  # Enable special keys like arrow keys
+    if motorNum == 1:
+        pwmAuger.ChangeDutyCycle(SPARK_NEUTRAL)
+        augerActive = False
+        augerSpeed = 0
+        print("[INFO] Auger Motor stopped.")
 
-    msg = "Ready. Press 1-4 to select a motor."
+    elif motorNum == 2:
+        pwmPlatform.ChangeDutyCycle(SPARK_NEUTRAL)
+        platformActive = False
+        platformSpeed = 0
+        platformDirection = "up"
+        print("[INFO] Platform Motor stopped.")
+
+    elif motorNum == 3:
+        pwmChamberLid.ChangeDutyCycle(0)
+        chamberLidActive = False
+        chamberLidAngle = 0
+        print("[INFO] Chamber Lid Servo stopped.")
+
+    elif motorNum == 4:
+        pwmSoilDrop.ChangeDutyCycle(0)
+        soilDropActive = False
+        soilDropAngle = 0
+        print("[INFO] Soil Dropper Servo stopped.")
+
+    else:
+        print("[WARN] Invalid motor number. Use 1-4.")
+
+
+
+
+#####################################################################################################################
+# Status Display
+#   - Prints the current state of all four motors in a readable table
+#   - Shows whether each motor is ON or OFF, its current speed/angle, and direction
+#   - Called automatically after every command so you always see the latest state
+#####################################################################################################################
+
+def printStatus():
+    """Print the current state of all four motors."""
+    print("")
+    print("=" * 62)
+    print("  LUSI Science Module - Motor Status")
+    print("=" * 62)
+
+    # Motor 1 - Auger
+    augerStatus = "ON" if augerActive else "OFF"
+    augerLine = f"  [1] Auger Motor (NEO 550)    | {augerStatus} | Speed: {augerSpeed}%"
+    print(augerLine)
+
+    # Motor 2 - Platform
+    platformStatus = "ON" if platformActive else "OFF"
+    dirStr = platformDirection.upper() if platformActive else "--"
+    platformLine = f"  [2] Platform Motor (NEO 550) | {platformStatus} | Speed: {platformSpeed}% | Dir: {dirStr}"
+    print(platformLine)
+
+    # Motor 3 - Chamber Lid
+    chamberStatus = "ON" if chamberLidActive else "OFF"
+    chamberLine = f"  [3] Chamber Lid (SM-S2309S)  | {chamberStatus} | Angle: {chamberLidAngle}°"
+    print(chamberLine)
+
+    # Motor 4 - Soil Dropper
+    dropperStatus = "ON" if soilDropActive else "OFF"
+    dropperLine = f"  [4] Soil Dropper (SG92R)     | {dropperStatus} | Angle: {soilDropAngle}°"
+    print(dropperLine)
+
+    print("=" * 62)
+    print("")
+
+
+
+
+#####################################################################################################################
+# Motor List Display
+#   - Prints the numbered motor list so the user can pick one
+#   - Shows motor name, type, and what kind of input it accepts
+#   - Reprinted every time the user types "set" so they always see it
+#####################################################################################################################
+
+def printMotorList():
+    """Print the numbered list of available motors."""
+    print("")
+    print("  Motors:")
+    print("    [1] Auger Motor (NEO 550)    - speed 0-100%, forward only")
+    print("    [2] Platform Motor (NEO 550) - speed 0-100%, up or down")
+    print("    [3] Chamber Lid (SM-S2309S)  - angle 0-180°")
+    print("    [4] Soil Dropper (SG92R)     - angle 0-180°")
+    print("")
+
+
+
+
+#####################################################################################################################
+# Main Menu Display
+#   - Prints the available main-menu commands
+#   - Called on startup and when the user types "help" or "h"
+#####################################################################################################################
+
+def printHelp():
+    """Print the main menu commands."""
+    print("")
+    print("-" * 62)
+    print("  Main Menu:")
+    print("    set          Select a motor and set its speed/angle")
+    print("    off          Turn off a single motor")
+    print("    stop / x     Stop ALL motors immediately")
+    print("    status / s   Show motor status")
+    print("    help / h     Show this menu")
+    print("    q            Quit program")
+    print("-" * 62)
+    print("")
+
+
+
+
+#####################################################################################################################
+# Handle "set" Command - Select a Motor and Set Its Value
+#
+#   How it works:
+#       1. Prints the motor list so the user can see all 4 options
+#       2. Asks "Select motor (1-4): " and reads the user's choice
+#       3. Based on the motor selected:
+#           - Motors 1 & 2 (NEO 550): asks for a speed percentage (0-100%)
+#           - Motor 2 also asks for direction (up/down) before asking for speed
+#           - Motors 3 & 4 (servos): asks for an angle in degrees (0-180°)
+#       4. Setting 0% speed or 0° angle automatically turns that motor off
+#       5. The PWM duty cycle is calculated automatically from the typed value
+#
+#   Parameters:
+#       None - reads input directly from the user via input()
+#
+#   Returns:
+#       None - modifies global state variables and sends PWM signals
+#####################################################################################################################
+
+def handleSetCommand():
+    """Walk the user through selecting a motor and setting its speed or angle."""
+    global augerActive, augerSpeed
+    global platformActive, platformSpeed, platformDirection
+    global chamberLidActive, chamberLidAngle
+    global soilDropActive, soilDropAngle
+
+    # Show all four motors so the user knows which number to type
+    printMotorList()
+
+    # ============================================================
+    # Step 1 - Ask which motor to control
+    # ============================================================
+    try:
+        motorRaw = input("  Select motor (1-4): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("")
+        return
+    try:
+        motorNum = int(motorRaw)
+    except ValueError:
+        print("[WARN] Please enter a number 1-4.")
+        return
+    if motorNum < 1 or motorNum > 4:
+        print("[WARN] Please enter a number 1-4.")
+        return
+
+    # ============================================================
+    # Motor 1 - Auger (NEO 550, forward only)
+    #   - Ask for speed 0-100%
+    #   - 0% automatically turns the motor off
+    # ============================================================
+    if motorNum == 1:
+        try:
+            speedRaw = input("  Enter speed (0-100%): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("")
+            return
+        try:
+            speed = int(speedRaw)
+        except ValueError:
+            print("[WARN] Speed must be a number 0-100.")
+            return
+        if speed < 0 or speed > 100:
+            print("[WARN] Speed must be 0-100.")
+            return
+
+        # 0% means turn the motor off
+        if speed == 0:
+            stopSingleMotor(1)
+            return
+
+        augerActive = True
+        augerSpeed = speed
+        setSparkMotor(pwmAuger, augerSpeed, "forward")
+        infoLine = f"[INFO] Auger speed set to {augerSpeed}%"
+        print(infoLine)
+
+    # ============================================================
+    # Motor 2 - Platform (NEO 550, bidirectional)
+    #   - Ask for direction (up/down) first
+    #   - Then ask for speed 0-100%
+    #   - 0% automatically turns the motor off
+    # ============================================================
+    elif motorNum == 2:
+        try:
+            dirRaw = input("  Direction (up/down): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("")
+            return
+        if dirRaw in ("up", "forward"):
+            direction = "up"
+        elif dirRaw in ("down", "reverse"):
+            direction = "down"
+        else:
+            print("[WARN] Direction must be 'up' or 'down'.")
+            return
+
+        try:
+            speedRaw = input("  Enter speed (0-100%): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("")
+            return
+        try:
+            speed = int(speedRaw)
+        except ValueError:
+            print("[WARN] Speed must be a number 0-100.")
+            return
+        if speed < 0 or speed > 100:
+            print("[WARN] Speed must be 0-100.")
+            return
+
+        # 0% means turn the motor off
+        if speed == 0:
+            stopSingleMotor(2)
+            return
+
+        platformActive = True
+        platformSpeed = speed
+        platformDirection = direction
+        sparkDir = "forward" if platformDirection == "up" else "reverse"
+        setSparkMotor(pwmPlatform, platformSpeed, sparkDir)
+        infoLine = f"[INFO] Platform speed set to {platformSpeed}% ({platformDirection.upper()})"
+        print(infoLine)
+
+    # ============================================================
+    # Motor 3 - Chamber Lid Servo (SM-S2309S)
+    #   - Ask for angle 0-180°
+    #   - 0° automatically turns the servo off
+    # ============================================================
+    elif motorNum == 3:
+        try:
+            angleRaw = input("  Enter angle (0-180°): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("")
+            return
+        try:
+            angle = int(angleRaw)
+        except ValueError:
+            print("[WARN] Angle must be a number 0-180.")
+            return
+        if angle < 0 or angle > 180:
+            print("[WARN] Angle must be 0-180.")
+            return
+
+        # 0° means turn the servo off
+        if angle == 0:
+            stopSingleMotor(3)
+            return
+
+        chamberLidActive = True
+        chamberLidAngle = angle
+        setServoAngle(pwmChamberLid, chamberLidAngle)
+        infoLine = f"[INFO] Chamber Lid angle set to {chamberLidAngle}°"
+        print(infoLine)
+
+    # ============================================================
+    # Motor 4 - Soil Dropper Servo (SG92R)
+    #   - Ask for angle 0-180°
+    #   - 0° automatically turns the servo off
+    # ============================================================
+    elif motorNum == 4:
+        try:
+            angleRaw = input("  Enter angle (0-180°): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("")
+            return
+        try:
+            angle = int(angleRaw)
+        except ValueError:
+            print("[WARN] Angle must be a number 0-180.")
+            return
+        if angle < 0 or angle > 180:
+            print("[WARN] Angle must be 0-180.")
+            return
+
+        # 0° means turn the servo off
+        if angle == 0:
+            stopSingleMotor(4)
+            return
+
+        soilDropActive = True
+        soilDropAngle = angle
+        setServoAngle(pwmSoilDrop, soilDropAngle)
+        infoLine = f"[INFO] Soil Dropper angle set to {soilDropAngle}°"
+        print(infoLine)
+
+
+
+
+#####################################################################################################################
+# Handle "off" Command - Turn Off a Single Motor
+#
+#   How it works:
+#       1. Asks which motor to turn off (1-4)
+#       2. Sends the appropriate stop signal (neutral for NEO 550, 0% for servos)
+#       3. Resets the motor's state variables
+#
+#   Parameters:
+#       None - reads input directly from the user via input()
+#
+#   Returns:
+#       None - modifies global state variables and sends PWM signals
+#####################################################################################################################
+
+def handleOffCommand():
+    """Ask which motor to turn off and stop it."""
+    try:
+        motorRaw = input("  Turn off motor (1-4): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("")
+        return
+    try:
+        motorNum = int(motorRaw)
+    except ValueError:
+        print("[WARN] Please enter a number 1-4.")
+        return
+    stopSingleMotor(motorNum)
+
+
+
+
+#####################################################################################################################
+# Main CLI Loop
+#
+#   How it works:
+#       1. On startup, prints help menu and motor status
+#       2. Prompts the user with ">> " for a main-menu command
+#       3. Dispatches to the appropriate handler:
+#           - "set"  --> handleSetCommand() - select a motor and type a value
+#           - "off"  --> handleOffCommand() - turn off one motor
+#           - "stop" --> stopAllMotors() - emergency stop everything
+#       4. Status table prints after every successful command
+#       5. The loop continues until the user types "q"
+#       6. On exit (or crash), all PWM signals are stopped and GPIO pins are released
+#####################################################################################################################
+
+def main():
+    """Run the main menu loop."""
+    printHelp()
+    printStatus()
 
     while True:
-        # ---- Draw the screen ----
-        stdscr.clear()
-        stdscr.addstr(buildDisplay(msg))
-        stdscr.refresh()
-
-        # ---- Read a key press ----
-        key = stdscr.getch()
-
-        # No key pressed - wait briefly and loop
-        if key == -1:
-            time.sleep(0.1)
-            continue
-
-        # ============================================================
-        # MOTOR SELECTION (keys 1-4)
-        # ============================================================
-        if key == ord('1'):
-            selectedMotor = 1
-            msg = "Selected: Auger Motor (NEO 550)"
-
-        elif key == ord('2'):
-            selectedMotor = 2
-            msg = "Selected: Platform Motor (NEO 550)"
-
-        elif key == ord('3'):
-            selectedMotor = 3
-            msg = "Selected: Chamber Lid Servo (SM-S2309S)"
-
-        elif key == ord('4'):
-            selectedMotor = 4
-            msg = "Selected: Soil Dropper Servo (SG92R)"
-
-        # ============================================================
-        # ACTIVATE SELECTED MOTOR (Enter key)
-        # ============================================================
-        elif key in (curses.KEY_ENTER, 10, 13):
-            if selectedMotor is None:
-                msg = "[WARN] No motor selected! Press 1-4 first."
-
-            elif selectedMotor == 1 and not augerActive:
-                augerActive = True
-                augerSpeed = 0
-                setSparkMotor(pwmAuger, 0)
-                msg = "[INFO] Auger Motor ACTIVATED (speed 0%)"
-
-            elif selectedMotor == 2 and not platformActive:
-                platformActive = True
-                platformSpeed = 0
-                platformDirection = "up"
-                setSparkMotor(pwmPlatform, 0)
-                msg = "[INFO] Platform Motor ACTIVATED (speed 0%, direction UP)"
-
-            elif selectedMotor == 3 and not chamberLidActive:
-                chamberLidActive = True
-                chamberLidAngle = 0
-                setServoAngle(pwmChamberLid, 0)
-                msg = "[INFO] Chamber Lid Servo ACTIVATED (angle 0°)"
-
-            elif selectedMotor == 4 and not soilDropActive:
-                soilDropActive = True
-                soilDropAngle = 0
-                setServoAngle(pwmSoilDrop, 0)
-                msg = "[INFO] Soil Dropper Servo ACTIVATED (angle 0°)"
-
-            else:
-                msg = "[WARN] That motor is already active."
-
-        # ============================================================
-        # SPEED / ANGLE ADJUSTMENT (Up and Down arrow keys)
-        #   - Up --> increase speed (NEO 550) or angle (servo)
-        #   - Down --> decrease speed (NEO 550) or angle (servo)
-        # ============================================================
-        elif key == curses.KEY_UP:
-            if selectedMotor == 1 and augerActive:
-                augerSpeed = min(augerSpeed + SPEED_STEP, 100)
-                setSparkMotor(pwmAuger, augerSpeed, "forward")
-                msg = f"Auger speed: {augerSpeed}%"
-
-            elif selectedMotor == 2 and platformActive:
-                platformSpeed = min(platformSpeed + SPEED_STEP, 100)
-                setSparkMotor(pwmPlatform, platformSpeed, platformDirection.replace("up", "forward").replace("down", "reverse"))
-                msg = f"Platform speed: {platformSpeed}% ({platformDirection})"
-
-            elif selectedMotor == 3 and chamberLidActive:
-                chamberLidAngle = min(chamberLidAngle + ANGLE_STEP, 180)
-                setServoAngle(pwmChamberLid, chamberLidAngle)
-                msg = f"Chamber Lid angle: {chamberLidAngle}°"
-
-            elif selectedMotor == 4 and soilDropActive:
-                soilDropAngle = min(soilDropAngle + ANGLE_STEP, 180)
-                setServoAngle(pwmSoilDrop, soilDropAngle)
-                msg = f"Soil Dropper angle: {soilDropAngle}°"
-
-            else:
-                msg = "[WARN] Select and activate a motor first (1-4, then Enter)."
-
-        elif key == curses.KEY_DOWN:
-            if selectedMotor == 1 and augerActive:
-                augerSpeed = max(augerSpeed - SPEED_STEP, 0)
-                setSparkMotor(pwmAuger, augerSpeed, "forward")
-                msg = f"Auger speed: {augerSpeed}%"
-
-            elif selectedMotor == 2 and platformActive:
-                platformSpeed = max(platformSpeed - SPEED_STEP, 0)
-                setSparkMotor(pwmPlatform, platformSpeed, platformDirection.replace("up", "forward").replace("down", "reverse"))
-                msg = f"Platform speed: {platformSpeed}% ({platformDirection})"
-
-            elif selectedMotor == 3 and chamberLidActive:
-                chamberLidAngle = max(chamberLidAngle - ANGLE_STEP, 0)
-                setServoAngle(pwmChamberLid, chamberLidAngle)
-                msg = f"Chamber Lid angle: {chamberLidAngle}°"
-
-            elif selectedMotor == 4 and soilDropActive:
-                soilDropAngle = max(soilDropAngle - ANGLE_STEP, 0)
-                setServoAngle(pwmSoilDrop, soilDropAngle)
-                msg = f"Soil Dropper angle: {soilDropAngle}°"
-
-            else:
-                msg = "[WARN] Select and activate a motor first (1-4, then Enter)."
-
-        # ============================================================
-        # REVERSE DIRECTION (r key - Platform motor only)
-        # ============================================================
-        elif key == ord('r'):
-            if selectedMotor == 2 and platformActive:
-                # Flip the direction
-                platformDirection = "down" if platformDirection == "up" else "up"
-                # Apply the new direction at the current speed
-                sparkDir = "forward" if platformDirection == "up" else "reverse"
-                setSparkMotor(pwmPlatform, platformSpeed, sparkDir)
-                msg = f"Platform direction: {platformDirection.upper()} (speed {platformSpeed}%)"
-            elif selectedMotor == 1:
-                msg = "[WARN] Auger motor is forward-only (no reverse)."
-            else:
-                msg = "[WARN] Reverse only works on the Platform motor (select 2)."
-
-        # ============================================================
-        # EMERGENCY STOP (x key - stops ALL motors immediately)
-        # ============================================================
-        elif key == ord('x'):
-            stopAllMotors()
-            msg = "[INFO] ALL MOTORS STOPPED."
-
-        # ============================================================
-        # QUIT PROGRAM (q key)
-        # ============================================================
-        elif key == ord('q'):
+        try:
+            raw = input(">> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            # Handle CTRL+C or CTRL+D gracefully
+            print("")
             break
 
-        # Small delay to prevent excessive CPU usage
-        time.sleep(0.1)
+        # Skip empty input
+        if not raw:
+            continue
+
+        cmd = raw.lower()
+
+        # ============================================================
+        # QUIT (q)
+        # ============================================================
+        if cmd == "q":
+            break
+
+        # ============================================================
+        # HELP (help, h)
+        # ============================================================
+        elif cmd in ("help", "h"):
+            printHelp()
+            continue  # Don't print status after help
+
+        # ============================================================
+        # STATUS (status, s)
+        # ============================================================
+        elif cmd in ("status", "s"):
+            printStatus()
+            continue  # Already printing status
+
+        # ============================================================
+        # SET - Select a motor and set its speed/angle
+        # ============================================================
+        elif cmd == "set":
+            handleSetCommand()
+
+        # ============================================================
+        # OFF - Turn off a single motor
+        # ============================================================
+        elif cmd == "off":
+            handleOffCommand()
+
+        # ============================================================
+        # STOP ALL MOTORS (stop, x)
+        # ============================================================
+        elif cmd in ("stop", "x"):
+            stopAllMotors()
+            print("[INFO] ALL MOTORS STOPPED.")
+
+        # ============================================================
+        # UNKNOWN COMMAND
+        # ============================================================
+        else:
+            unknownLine = f"[WARN] Unknown command: '{raw}'. Type 'help' for available commands."
+            print(unknownLine)
+            continue  # Don't print status for unknown commands
+
+        # Print updated status after every successful command
+        printStatus()
 
 
 
 
 #####################################################################################################################
 # Main Execution and Cleanup
-#   - curses.wrapper() runs the CLI and automatically restores the terminal on exit
+#   - Runs the main CLI loop
 #   - The "finally" block ensures all PWM signals are stopped and GPIO pins are released
 #     even if the program crashes or is interrupted
 #   - We send neutral (7.5%) to the Spark MAX controllers before stopping PWM
@@ -538,7 +711,7 @@ def main(stdscr):
 #####################################################################################################################
 
 try:
-    curses.wrapper(main)
+    main()
 finally:
     # Send neutral / off signals before shutting down
     pwmAuger.ChangeDutyCycle(SPARK_NEUTRAL)
