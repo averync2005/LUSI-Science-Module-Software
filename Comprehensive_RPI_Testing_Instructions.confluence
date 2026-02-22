@@ -1,0 +1,407 @@
+h1. Comprehensive RPI Testing Instructions
+
+*GOOD PRACTICE:* Always unplug the Raspberry Pi before removing the SD card to prevent data corruption.
+
+----
+
+h2. 1. Overview
+
+The goal is to establish a reliable, headless (no monitor, keyboard, or mouse) Ethernet connection between a Windows computer and a Raspberry Pi 4 Model B, then use that connection to control and test the LUSI Science Module hardware remotely via SSH.
+
+After setup, you can SSH into the Pi at a fixed IP address. Wi-Fi is not required, but you can optionally share your Windows machine's Wi-Fi to give the Pi temporary Internet access when needed (for installing packages, cloning repos, etc.).
+
+||Device||Interface||Static IP||Purpose||
+|Windows PC|Ethernet|192.168.137.1|SSH host and optional Internet gateway|
+|Raspberry Pi 4B|eth0|192.168.137.2|SSH target and hardware controller|
+
+----
+
+h2. 2. One-Time Raspberry Pi Configuration
+
+These steps only need to be done once per Raspberry Pi.
+
+h3. 2.1 Flash Raspberry Pi OS
+
+# Open *Raspberry Pi Imager* on your Windows computer. You can download it from [https://www.raspberrypi.com/software/].
+# Under *Choose OS*, select: *Raspberry Pi OS with Desktop (64-bit)*.
+# Under *Choose Storage*, select your microSD card.
+# Press *Ctrl + Shift + X* to open the *Advanced Settings* menu.
+# Configure the following:
+|| Setting || Value ||
+| SSH | Enabled |
+| Hostname | lusiPI |
+| Username | pi |
+| Password | lusi |
+| Wi-Fi | Leave all Wi-Fi fields blank |
+# Click *Write* and wait for the write and verification to complete.
+# Safely eject the SD card, then insert it into the Raspberry Pi.
+
+h3. 2.2 Boot and Enable SSH
+
+For this initial setup step, you need to temporarily connect the Pi to a monitor, keyboard, and mouse.
+
+# Insert the SD card into the Pi, connect a monitor via micro-HDMI, plug in a USB keyboard and mouse, and power on the Pi.
+# Wait for it to boot into the desktop.
+# Open a terminal window. You can find it in the top menu bar, or right-click the desktop and select "Open Terminal".
+# Run the following commands one at a time to enable the SSH service:
+
+{code}
+sudo systemctl enable ssh
+sudo systemctl start ssh
+sudo systemctl status ssh
+{code}
+
+# Confirm that the output of the last command shows *active (running)*. This means SSH is working and will start automatically on every future boot.
+
+h3. 2.3 Assign a Static IP Address
+
+You need to give the Pi a fixed IP address on its Ethernet port so the Windows computer can always find it at the same address.
+
+||Field||Value||
+|Address|192.168.137.2|
+|Netmask|255.255.255.0 (/24)|
+|Gateway|192.168.137.1|
+
+Run these commands one at a time in the Pi's terminal:
+
+{code}
+sudo nmcli connection modify "Wired connection 1" ipv4.addresses "192.168.137.2/24"
+sudo nmcli connection modify "Wired connection 1" ipv4.gateway "192.168.137.1"
+sudo nmcli connection modify "Wired connection 1" ipv4.method manual
+sudo nmcli connection up "Wired connection 1"
+{code}
+
+Reboot the Pi to apply the changes:
+
+{code}
+sudo reboot
+{code}
+
+After this reboot, you can disconnect the monitor, keyboard, and mouse. All future access will be over Ethernet via SSH.
+
+----
+
+h2. 3. Windows Ethernet Configuration
+
+h3. 3.1 Assign a Static IP to the Ethernet Adapter
+
+# Press *Win + R* on your keyboard, type {{ncpa.cpl}}, and press *Enter*. This opens the Network Connections window.
+# Find the Ethernet adapter that is physically connected to the Pi. Right-click it and select *Properties*.
+# In the list, click on *Internet Protocol Version 4 (TCP/IPv4)*, then click *Properties*.
+# Select *Use the following IP address* and enter:
+
+||Field||Value||
+|IP address|192.168.137.1|
+|Subnet mask|255.255.255.0|
+|Default gateway|(leave blank)|
+|DNS server|(leave blank)|
+
+# Click *OK*, then close all dialog windows.
+# If the Ethernet cable is already plugged in, unplug it and plug it back in to force the adapter to pick up the new settings.
+
+----
+
+h2. 4. Verifying SSH Connectivity
+
+# Connect an Ethernet cable directly between the Pi and the Windows computer. No router or switch is needed.
+# Wait approximately 20 seconds for the link lights on both the Pi's Ethernet port and the computer's Ethernet port to turn on and stabilize.
+# Open a terminal on Windows (*Command Prompt*, *PowerShell*, or *Windows Terminal*).
+# Test that the Pi is reachable by running:
+
+{code}
+ping 192.168.137.2
+{code}
+
+If you see replies (e.g., "Reply from 192.168.137.2: bytes=32 ..."), the link is active.
+
+# Connect to the Pi via SSH:
+
+{code}
+ssh pi@192.168.137.2
+{code}
+
+When prompted, enter the password: {{lusi}}
+
+# You should now see the Raspberry Pi command prompt:
+
+{code}
+pi@lusiPI:~ $
+{code}
+
+SSH access over Ethernet is now functional and independent of Wi-Fi. You can now run commands on the Pi remotely from your Windows machine.
+
+----
+
+h2. 5. Enabling Temporary Internet Access (Optional)
+
+If you need to install packages, clone repositories, or run system updates on the Pi, you can temporarily share your Windows computer's Wi-Fi connection over the Ethernet cable.
+
+h3. 5.1 Enable Internet Connection Sharing (Windows)
+
+# Open Network Connections: press *Win + R*, type {{ncpa.cpl}}, and press *Enter*.
+# Right-click your *Wi-Fi adapter* (not the Ethernet adapter), and select *Properties*.
+# Go to the *Sharing* tab.
+# Check the box that says *"Allow other network users to connect through this computer's Internet connection."*
+# In the dropdown menu below, select your *Ethernet adapter* (the one connected to the Pi).
+# Click *OK*.
+
+Windows automatically configures the shared interface to use the 192.168.137.x subnet, which matches the static IPs already configured.
+
+h3. 5.2 Add a Default Route on the Pi
+
+While Internet Connection Sharing is active, tell the Pi to route its Internet traffic through the Windows PC:
+
+{code}
+sudo ip route add default via 192.168.137.1
+{code}
+
+Test connectivity:
+
+{code}
+ping -c 3 8.8.8.8
+ping -c 3 github.com
+{code}
+
+If both commands return successful replies, the Pi has Internet access through the Windows PC.
+
+h3. 5.3 Disable Internet Sharing When Done
+
+# On Windows, go back to *Wi-Fi --> Properties --> Sharing* tab.
+# Uncheck *"Allow other network users to connect..."*.
+# Click *OK*.
+# Reboot the Pi or reconnect the Ethernet cable.
+
+SSH over Ethernet will continue to work normally after disabling Internet sharing.
+
+----
+
+h2. 6. Making the Connection Persistent
+
+To ensure the Ethernet connection survives reboots on both sides:
+
+* Keep the Windows Ethernet adapter at *192.168.137.1* (static). This setting persists unless you change it.
+* The Pi's Ethernet interface (eth0) is already set to *192.168.137.2* (manual/static via nmcli). This persists across reboots.
+* Ensure the default route persists on the Pi by verifying after a reboot:
+
+{code}
+ip route
+{code}
+
+Expected output:
+
+{code}
+default via 192.168.137.1 dev eth0
+192.168.137.0/24 dev eth0 proto kernel scope link src 192.168.137.2
+{code}
+
+If the default route is missing after a reboot, re-add it:
+
+{code}
+sudo ip route add default via 192.168.137.1
+{code}
+
+----
+
+h2. 7. Installing Dependencies
+
+All of the following commands are run on the Raspberry Pi via SSH.
+
+h3. 7.1 Update System Packages
+
+{code}
+sudo apt update && sudo apt upgrade -y
+{code}
+
+h3. 7.2 Install Python and Virtual Environment Tools
+
+{code}
+sudo apt install -y python3 python3-pip python3-venv
+{code}
+
+h3. 7.3 Clone the LUSI Science Module Repository
+
+{code}
+cd ~/Desktop
+git clone https://github.com/averync2005/LUSI-Science-Module-Software.git LUSI-Science-Module
+cd LUSI-Science-Module
+{code}
+
+This clones the {{main}} branch into {{~/Desktop/LUSI-Science-Module}}.
+
+h3. 7.4 Set Up a Python Virtual Environment
+
+A virtual environment keeps the project's Python packages separate from the system Python, preventing version conflicts.
+
+{code}
+python3 -m venv venv
+source venv/bin/activate
+{code}
+
+After running {{source venv/bin/activate}}, your terminal prompt will change to show {{(venv)}} at the beginning. This means the virtual environment is active. You must activate it every time you open a new SSH session before running any LUSI scripts.
+
+h3. 7.5 Install Required Python Libraries
+
+*Hardware controller dependencies* (required for motor controller and mass sensor):
+
+{code}
+pip install RPi.GPIO
+pip install git+https://github.com/tatobari/hx711py.git
+{code}
+
+*Camera and serial port dependencies* (required for ELP camera and serial port scripts):
+
+{code}
+pip install opencv-python
+pip install pyserial
+{code}
+
+h3. 7.6 Verify Installation
+
+{code}
+pip list
+{code}
+
+You should see {{RPi.GPIO}}, {{hx711}}, {{opencv-python}}, and {{pyserial}} in the list.
+
+h3. 7.7 (Optional) Save / Restore the Environment
+
+Save the current environment to a file:
+
+{code}
+pip freeze > requirements.txt
+{code}
+
+Reinstall from that file later:
+
+{code}
+pip install -r requirements.txt
+{code}
+
+----
+
+h2. 8. Testing the Motor Controller
+
+The Motor Controller CLI controls 4 motors on the LUSI Science Module:
+
+||Motor||Type||Purpose||Control||
+|1. Auger Motor|NEO 550 (via Spark MAX)|Digs soil|Speed 0-100%, forward only|
+|2. Platform Motor|NEO 550 (via Spark MAX)|Raises/lowers the soil collection platform|Speed 0-100%, bidirectional (up/down)|
+|3. Testing Chamber Lid|SM-S2309S servo|Rotates testing chamber lid|Angle 0-180°|
+|4. Soil Dropper|SG92R micro servo|Rotates soil dropper lid|Angle 0-180°|
+
+h3. 8.1 Running the Motor Controller
+
+Make sure you are in the project root directory with the virtual environment activated:
+
+{code}
+cd ~/Desktop/LUSI-Science-Module
+source venv/bin/activate
+python Hardware_Controllers/Motor_Controller_CLI.py
+{code}
+
+The CLI will launch in the terminal and display a live dashboard with all 4 motors and their current status.
+
+h3. 8.2 Motor Controller Keybinds
+
+||Key||Action||
+|1, 2, 3, 4|Select a motor|
+|ENTER|Activate the selected motor|
+|UP arrow|Increase speed by 5% (NEO 550) or angle by 1° (servo)|
+|DOWN arrow|Decrease speed by 5% (NEO 550) or angle by 1° (servo)|
+|r|Reverse direction (Platform motor only)|
+|x|STOP all motors immediately|
+|q|Quit the program|
+
+h3. 8.3 Testing Procedure
+
+# Launch the CLI using the command above.
+# Press *1* to select the Auger Motor. You should see {{>>>}} appear next to it on the dashboard.
+# Press *ENTER* to activate the motor. The status should change from OFF to ON with speed 0%.
+# Press the *UP arrow* a few times. The speed should increase by 5% per key press, and the auger motor should begin spinning.
+# Press the *DOWN arrow* to decrease speed back to 0%.
+# Press *2* to select the Platform Motor.
+# Press *ENTER* to activate it.
+# Press the *UP arrow* to increase speed. The platform should begin moving upward.
+# Press *r* to reverse direction. The dashboard should show "Dir: DOWN" and the platform should reverse.
+# Press *3* to select the Chamber Lid Servo.
+# Press *ENTER* to activate it.
+# Press the *UP arrow* repeatedly. The angle should increase by 1° per key press, and the servo should rotate.
+# Press *4* to select the Soil Dropper Servo and repeat the same activation and angle test.
+# Press *x* at any time to immediately stop all motors. All statuses should reset to OFF.
+# Press *q* to quit the program. The terminal should print "All motors stopped. GPIO cleaned up safely."
+
+----
+
+h2. 9. Testing the Mass Sensor (HX711)
+
+The mass sensor script reads weight data from a load cell connected to the Pi through an HX711 amplifier board.
+
+h3. 9.1 Running the Mass Sensor
+
+{code}
+cd ~/Desktop/LUSI-Science-Module
+source venv/bin/activate
+python Hardware_Controllers/Mass_Sensor_HX711.py
+{code}
+
+h3. 9.2 Expected Behavior
+
+# On startup, the script prints: "Taring... Please remove all weight from the load cell."
+# Make sure nothing is on the load cell at this point. The script automatically tares (zeroes) itself.
+# After taring, it prints: "Tare complete."
+# The script then continuously prints the measured weight in grams once per second, for example: {{Weight: 0.00 g}}
+# Place a known weight on the load cell and verify that the displayed value changes accordingly.
+# Press *CTRL+C* to stop the script. It will print: "Exiting... Program stopped."
+
+----
+
+h2. 10. Testing the Camera (ELP Camera)
+
+*Note:* Camera testing instructions depend on the current state of the ELP_Camera.py software. Refer to the script's built-in help for available options:
+
+{code}
+cd ~/Desktop/LUSI-Science-Module
+source venv/bin/activate
+python Site_Analysis/ELP_Camera.py --help
+{code}
+
+h3. 10.1 Utility Scripts
+
+*List connected cameras* - Scans for available camera devices and prints which indices are active:
+
+{code}
+python Site_Analysis/List_Connected_Cams.py
+{code}
+
+Typical output:
+* Index 0: Built-in webcam (if running on a laptop)
+* Index 1+: External USB cameras (e.g., the ELP camera)
+
+*List serial ports* - Detects available serial ports and optionally probes for GNSS/NMEA devices:
+
+{code}
+python Site_Analysis/List_Serial_Ports.py
+{code}
+
+To also probe for GNSS signals:
+
+{code}
+python Site_Analysis/List_Serial_Ports.py --probe
+{code}
+
+----
+
+h2. 11. Quick Reference
+
+||Task||Command / Action||
+|SSH into the Pi|{{ssh pi@192.168.137.2}} (password: {{lusi}})|
+|Activate the virtual environment|{{cd ~/Desktop/LUSI-Science-Module && source venv/bin/activate}}|
+|Run motor controller|{{python Hardware_Controllers/Motor_Controller_CLI.py}}|
+|Run mass sensor|{{python Hardware_Controllers/Mass_Sensor_HX711.py}}|
+|List cameras|{{python Site_Analysis/List_Connected_Cams.py}}|
+|List serial ports|{{python Site_Analysis/List_Serial_Ports.py}}|
+|Check network config (Pi)|{{ip addr}} / {{ip route}}|
+|Add route if Internet fails|{{sudo ip route add default via 192.168.137.1}}|
+|Test connectivity (from Windows)|{{ping 192.168.137.2}}|
+|Test connectivity (from Pi)|{{ping 192.168.137.1}}|
+|Recover SSH timeout|Check cable and link lights. Confirm Windows IP = 192.168.137.1. Confirm Pi eth0 = 192.168.137.2. Reboot both devices if needed.|

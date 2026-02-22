@@ -18,9 +18,11 @@
 #   3. Testing Chamber Lid
 #     - SM-S2309S servo
 #     - rotates the lid of the testing chamber
-#                          Range: 0–180°, ±1° fine control
-#   4. Soil Dropper     - SG92R micro servo - rotates a lid that drops collected soil
-#                          Range: 0–180°, ±1° fine control
+#     - Range: 0-180°, ±1° fine control
+#   4. Soil Dropper
+#     - SG92R micro servo
+#     - Rotates a lid that drops collected soil
+#     - Range: 0-180°, ±1° fine control
 #####################################################################################################################
 
 
@@ -55,10 +57,10 @@ import RPi.GPIO as GPIO
 #   - Change these if you wire motors to different pins
 #####################################################################################################################
 
-AUGER_PIN       = 12  # NEO 550 → Spark MAX controller → GPIO 12
-PLATFORM_PIN    = 13  # NEO 550 → Spark MAX controller → GPIO 13
-CHAMBER_LID_PIN = 18  # SM-S2309S servo → GPIO 18
-SOIL_DROP_PIN   = 19  # SG92R micro servo → GPIO 19
+AUGER_PIN = 12  # NEO 550 --> Spark MAX controller --> GPIO 12
+PLATFORM_PIN = 13  # NEO 550 --> Spark MAX controller --> GPIO 13
+CHAMBER_LID_PIN = 18  # SM-S2309S servo --> GPIO 18
+SOIL_DROP_PIN = 19  # SG92R micro servo --> GPIO 19
 
 
 
@@ -70,20 +72,20 @@ SOIL_DROP_PIN   = 19  # SG92R micro servo → GPIO 19
 #
 # How the Spark MAX interprets the PWM signal (NEO 550 motors):
 #   - The Spark MAX reads the width of each pulse (in microseconds):
-#       1000 µs  →  full reverse
-#       1500 µs  →  neutral / stop
-#       2000 µs  →  full forward
+#       1000 µs --> full reverse
+#       1500 µs --> neutral / stop
+#       2000 µs --> full forward
 #   - At 50 Hz the period is 20 000 µs, so duty-cycle percentages are:
-#       5.0 %  →  1000 µs  →  full reverse
-#       7.5 %  →  1500 µs  →  neutral
-#      10.0 %  →  2000 µs  →  full forward
+#       5.0 % --> 1000 µs --> full reverse
+#       7.5 % --> 1500 µs --> neutral
+#      10.0 % --> 2000 µs --> full forward
 #
 # How standard servos interpret the PWM signal:
 #   - Pulse width maps to shaft angle:
-#       ~500 µs (2.5 %)  →    0°
-#      ~1500 µs (7.5 %)  →   90°
-#      ~2500 µs (12.5 %) →  180°
-#   - The formula used here:  duty% = (angle / 18) + 2.5
+#       ~500 µs (2.5 %) --> 0°
+#      ~1500 µs (7.5 %) --> 90°
+#      ~2500 µs (12.5 %) --> 180°
+#   - The formula used here: duty% = (angle / 18) + 2.5
 #####################################################################################################################
 
 PWM_FREQUENCY = 50  # 50 Hz for Spark MAX and hobby servos
@@ -103,9 +105,9 @@ ANGLE_STEP = 1  # Each key press changes angle by ±1°
 #####################################################################################################################
 # Motor State Variables
 #   - These keep track of whether each motor is active and its current speed/angle
-#   - "selected_motor" tracks which motor the user is currently controlling (1–4)
-#   - NEO 550 motors store speed as a percentage (0–100 %)
-#   - Servos store angle in degrees (0–180°)
+#   - "selected_motor" tracks which motor the user is currently controlling (1-4)
+#   - NEO 550 motors store speed as a percentage (0-100 %)
+#   - Servos store angle in degrees (0-180°)
 #   - Platform motor also stores its current direction ("up" or "down")
 #####################################################################################################################
 
@@ -113,20 +115,20 @@ selected_motor = None  # Which motor is currently selected (1, 2, 3, or 4)
 
 # Motor 1 - Auger (forward only)
 auger_active = False
-auger_speed  = 0  # 0–100 %
+auger_speed = 0  # 0-100 %
 
 # Motor 2 - Platform (bidirectional)
-platform_active    = False
-platform_speed     = 0  # 0–100 %
+platform_active = False
+platform_speed = 0  # 0-100 %
 platform_direction = "up"  # "up" (forward) or "down" (reverse)
 
 # Motor 3 - Chamber lid servo
 chamber_lid_active = False
-chamber_lid_angle  = 0  # 0–180°
+chamber_lid_angle = 0  # 0-180°
 
 # Motor 4 - Soil dropper servo
 soil_drop_active = False
-soil_drop_angle  = 0  # 0–180°
+soil_drop_angle = 0  # 0-180°
 
 
 
@@ -138,10 +140,10 @@ soil_drop_angle  = 0  # 0–180°
 #####################################################################################################################
 
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(AUGER_PIN,       GPIO.OUT)
-GPIO.setup(PLATFORM_PIN,    GPIO.OUT)
+GPIO.setup(AUGER_PIN, GPIO.OUT)
+GPIO.setup(PLATFORM_PIN, GPIO.OUT)
 GPIO.setup(CHAMBER_LID_PIN, GPIO.OUT)
-GPIO.setup(SOIL_DROP_PIN,   GPIO.OUT)
+GPIO.setup(SOIL_DROP_PIN, GPIO.OUT)
 
 
 
@@ -150,14 +152,14 @@ GPIO.setup(SOIL_DROP_PIN,   GPIO.OUT)
 # Initializing PWM Objects
 #   - Create a PWM object for each motor pin at 50 Hz
 #   - Start each PWM output at the appropriate "off" duty cycle:
-#       • Spark MAX motors start at 7.5 % (neutral / stopped)
-#       • Servos start at 0 % (signal off - holds last position or relaxes)
+#       - Spark MAX motors start at 7.5 % (neutral / stopped)
+#       - Servos start at 0 % (signal off - holds last position or relaxes)
 #####################################################################################################################
 
-pwm_auger       = GPIO.PWM(AUGER_PIN,       PWM_FREQUENCY)
-pwm_platform    = GPIO.PWM(PLATFORM_PIN,    PWM_FREQUENCY)
+pwm_auger = GPIO.PWM(AUGER_PIN, PWM_FREQUENCY)
+pwm_platform = GPIO.PWM(PLATFORM_PIN, PWM_FREQUENCY)
 pwm_chamber_lid = GPIO.PWM(CHAMBER_LID_PIN, PWM_FREQUENCY)
-pwm_soil_drop   = GPIO.PWM(SOIL_DROP_PIN,   PWM_FREQUENCY)
+pwm_soil_drop = GPIO.PWM(SOIL_DROP_PIN, PWM_FREQUENCY)
 
 pwm_auger.start(SPARK_NEUTRAL)  # NEO 550 - start at neutral
 pwm_platform.start(SPARK_NEUTRAL)  # NEO 550 - start at neutral
@@ -171,15 +173,15 @@ pwm_soil_drop.start(0)  # Servo - signal off
 # Helper Function - Convert Speed % to Spark MAX Duty Cycle
 #
 #   Parameters:
-#       speed_pct  - motor speed as a percentage, 0 to 100
-#       direction  - "forward" or "reverse"
+#       speed_pct - motor speed as a percentage, 0 to 100
+#       direction - "forward" or "reverse"
 #
 #   Returns:
 #       The PWM duty-cycle percentage to send to the Spark MAX
 #
 #   How it works:
-#       Forward:  duty = 7.5 + (speed / 100) × 2.5   →  7.5 % (stop) to 10.0 % (full forward)
-#       Reverse:  duty = 7.5 − (speed / 100) × 2.5   →  7.5 % (stop) to  5.0 % (full reverse)
+#       Forward: duty = 7.5 + (speed / 100) × 2.5 --> 7.5 % (stop) to 10.0 % (full forward)
+#       Reverse: duty = 7.5 - (speed / 100) × 2.5 --> 7.5 % (stop) to 5.0 % (full reverse)
 #####################################################################################################################
 
 def speed_to_spark_duty(speed_pct, direction="forward"):
@@ -195,14 +197,14 @@ def speed_to_spark_duty(speed_pct, direction="forward"):
 # Helper Function - Convert Angle to Servo Duty Cycle
 #
 #   Parameters:
-#       angle  - desired servo angle in degrees, 0 to 180
+#       angle - desired servo angle in degrees, 0 to 180
 #
 #   Returns:
 #       The PWM duty-cycle percentage to send to the servo
 #
 #   How it works:
 #       duty = (angle / 18) + 2.5
-#       This maps 0° → 2.5 %, 90° → 7.5 %, 180° → 12.5 %
+#       This maps 0° --> 2.5 %, 90° --> 7.5 %, 180° --> 12.5 %
 #####################################################################################################################
 
 def angle_to_servo_duty(angle):
@@ -215,9 +217,9 @@ def angle_to_servo_duty(angle):
 
 #####################################################################################################################
 # Motor Control Functions
-#   - set_spark_motor():  sends the correct duty cycle to a Spark MAX (NEO 550)
-#   - set_servo_angle():  sends the correct duty cycle to a hobby servo
-#   - stop_all_motors():  immediately stops every motor and resets all state
+#   - set_spark_motor(): sends the correct duty cycle to a Spark MAX (NEO 550)
+#   - set_servo_angle(): sends the correct duty cycle to a hobby servo
+#   - stop_all_motors(): immediately stops every motor and resets all state
 #####################################################################################################################
 
 def set_spark_motor(pwm_obj, speed_pct, direction="forward"):
@@ -227,7 +229,7 @@ def set_spark_motor(pwm_obj, speed_pct, direction="forward"):
 
 
 def set_servo_angle(pwm_obj, angle):
-    """Move a servo motor to the specified angle (0–180°)."""
+    """Move a servo motor to the specified angle (0-180°)."""
     angle = max(0, min(180, angle))
     duty = angle_to_servo_duty(angle)
     pwm_obj.ChangeDutyCycle(duty)
@@ -249,18 +251,18 @@ def stop_all_motors():
     pwm_soil_drop.ChangeDutyCycle(0)
 
     # Reset state
-    auger_active  = False
-    auger_speed   = 0
+    auger_active = False
+    auger_speed = 0
 
-    platform_active    = False
-    platform_speed     = 0
+    platform_active = False
+    platform_speed = 0
     platform_direction = "up"
 
     chamber_lid_active = False
-    chamber_lid_angle  = 0
+    chamber_lid_angle = 0
 
     soil_drop_active = False
-    soil_drop_angle  = 0
+    soil_drop_angle = 0
 
 
 
@@ -269,14 +271,14 @@ def stop_all_motors():
 # CLI Display - Build the Text Shown in the Terminal
 #   - Shows the current keybind controls at the top
 #   - Shows the status of all four motors
-#   - Highlights which motor is currently selected
+#   - Highlights which motor is currently selected with ">>>"
 #   - Shows the most recent action / message at the bottom
 #####################################################################################################################
 
 def build_display(msg):
     """Return a list of strings that make up the full terminal display."""
 
-    # --- Selection indicator helper ---
+    # Selection indicator helper
     def sel(motor_num):
         return ">>>" if selected_motor == motor_num else "   "
 
@@ -284,19 +286,18 @@ def build_display(msg):
 
     # Title
     lines.append("=" * 62)
-    lines.append("   LUSI Science Module - Motor Controller")
+    lines.append("  LUSI Science Module - Motor Controller")
     lines.append("=" * 62)
     lines.append("")
 
     # Keybind reference
     lines.append("  Keybind Controls:")
-    lines.append("    1-4      Select a motor")
-    lines.append("    ENTER    Start / activate the selected motor")
-    lines.append("    UP/DOWN  Speed +/- 5%  (NEO 550 motors)")
-    lines.append("             Angle +/- 1°  (Servo motors)")
-    lines.append("    r        Reverse direction  (Platform motor only)")
-    lines.append("    x        STOP all motors immediately")
-    lines.append("    q        Quit program")
+    lines.append("    1-4     Select a motor")
+    lines.append("    ENTER   Start / activate the selected motor")
+    lines.append("    UP/DOWN Speed +/- 5% (NEO 550) / Angle +/- 1° (Servos)")
+    lines.append("    r       Reverse direction (Platform motor only)")
+    lines.append("    x       STOP all motors immediately")
+    lines.append("    q       Quit program")
     lines.append("")
 
     # Divider
@@ -304,29 +305,29 @@ def build_display(msg):
     lines.append("")
 
     # Motor 1 - Auger
-    status1  = "ON " if auger_active else "OFF"
-    lines.append(f" {sel(1)}  [1] Auger Motor     (NEO 550)    "
-                 f"| {status1} | Speed: {auger_speed:3d}%")
+    auger_status = "ON" if auger_active else "OFF"
+    auger_line = f"{sel(1)} [1] Auger Motor (NEO 550) | {auger_status} | Speed: {auger_speed:3d}%"
+    lines.append(auger_line)
 
     # Motor 2 - Platform
-    status2  = "ON " if platform_active else "OFF"
-    dir_str  = platform_direction.upper() if platform_active else "--"
-    lines.append(f" {sel(2)}  [2] Platform Motor  (NEO 550)    "
-                 f"| {status2} | Speed: {platform_speed:3d}% | Dir: {dir_str}")
+    platform_status = "ON" if platform_active else "OFF"
+    dir_str = platform_direction.upper() if platform_active else "--"
+    platform_line = f"{sel(2)} [2] Platform Motor (NEO 550) | {platform_status} | Speed: {platform_speed:3d}% | Dir: {dir_str}"
+    lines.append(platform_line)
 
     # Motor 3 - Chamber Lid
-    status3  = "ON " if chamber_lid_active else "OFF"
-    lines.append(f" {sel(3)}  [3] Chamber Lid     (SM-S2309S)  "
-                 f"| {status3} | Angle: {chamber_lid_angle:3d}°")
+    chamber_status = "ON" if chamber_lid_active else "OFF"
+    chamber_line = f"{sel(3)} [3] Chamber Lid (SM-S2309S) | {chamber_status} | Angle: {chamber_lid_angle:3d}°"
+    lines.append(chamber_line)
 
     # Motor 4 - Soil Dropper
-    status4  = "ON " if soil_drop_active else "OFF"
-    lines.append(f" {sel(4)}  [4] Soil Dropper    (SG92R)      "
-                 f"| {status4} | Angle: {soil_drop_angle:3d}°")
+    dropper_status = "ON" if soil_drop_active else "OFF"
+    dropper_line = f"{sel(4)} [4] Soil Dropper (SG92R) | {dropper_status} | Angle: {soil_drop_angle:3d}°"
+    lines.append(dropper_line)
 
     lines.append("")
     lines.append("-" * 62)
-    lines.append(f"  >> {msg}")
+    lines.append(f">> {msg}")
 
     return "\n".join(lines)
 
@@ -340,7 +341,7 @@ def build_display(msg):
 #       1. The terminal is cleared and redrawn every loop iteration
 #       2. The program waits for a key press (non-blocking, checked every 100 ms)
 #       3. Depending on the key, the program:
-#           - Selects a motor (1–4)
+#           - Selects a motor (1-4)
 #           - Activates the selected motor (Enter)
 #           - Adjusts speed or angle (Up/Down arrow keys)
 #           - Reverses the platform motor direction (r)
@@ -378,7 +379,7 @@ def main(stdscr):
             continue
 
         # ============================================================
-        #  MOTOR SELECTION  (keys 1–4)
+        # MOTOR SELECTION (keys 1-4)
         # ============================================================
         if key == ord('1'):
             selected_motor = 1
@@ -397,7 +398,7 @@ def main(stdscr):
             msg = "Selected: Soil Dropper Servo (SG92R)"
 
         # ============================================================
-        #  ACTIVATE SELECTED MOTOR  (Enter key)
+        # ACTIVATE SELECTED MOTOR (Enter key)
         # ============================================================
         elif key in (curses.KEY_ENTER, 10, 13):
             if selected_motor is None:
@@ -405,26 +406,26 @@ def main(stdscr):
 
             elif selected_motor == 1 and not auger_active:
                 auger_active = True
-                auger_speed  = 0
+                auger_speed = 0
                 set_spark_motor(pwm_auger, 0)
                 msg = "Auger Motor ACTIVATED (speed 0%)"
 
             elif selected_motor == 2 and not platform_active:
-                platform_active    = True
-                platform_speed     = 0
+                platform_active = True
+                platform_speed = 0
                 platform_direction = "up"
                 set_spark_motor(pwm_platform, 0)
                 msg = "Platform Motor ACTIVATED (speed 0%, direction UP)"
 
             elif selected_motor == 3 and not chamber_lid_active:
                 chamber_lid_active = True
-                chamber_lid_angle  = 0
+                chamber_lid_angle = 0
                 set_servo_angle(pwm_chamber_lid, 0)
                 msg = "Chamber Lid Servo ACTIVATED (angle 0°)"
 
             elif selected_motor == 4 and not soil_drop_active:
                 soil_drop_active = True
-                soil_drop_angle  = 0
+                soil_drop_angle = 0
                 set_servo_angle(pwm_soil_drop, 0)
                 msg = "Soil Dropper Servo ACTIVATED (angle 0°)"
 
@@ -432,30 +433,30 @@ def main(stdscr):
                 msg = "That motor is already active."
 
         # ============================================================
-        #  SPEED / ANGLE ADJUSTMENT  (Up and Down arrow keys)
-        #   - Up   → increase speed (NEO 550) or angle (servo)
-        #   - Down → decrease speed (NEO 550) or angle (servo)
+        # SPEED / ANGLE ADJUSTMENT (Up and Down arrow keys)
+        #   - Up --> increase speed (NEO 550) or angle (servo)
+        #   - Down --> decrease speed (NEO 550) or angle (servo)
         # ============================================================
         elif key == curses.KEY_UP:
             if selected_motor == 1 and auger_active:
                 auger_speed = min(auger_speed + SPEED_STEP, 100)
                 set_spark_motor(pwm_auger, auger_speed, "forward")
-                msg = f"Auger speed → {auger_speed}%"
+                msg = f"Auger speed: {auger_speed}%"
 
             elif selected_motor == 2 and platform_active:
                 platform_speed = min(platform_speed + SPEED_STEP, 100)
                 set_spark_motor(pwm_platform, platform_speed, platform_direction.replace("up", "forward").replace("down", "reverse"))
-                msg = f"Platform speed → {platform_speed}% ({platform_direction})"
+                msg = f"Platform speed: {platform_speed}% ({platform_direction})"
 
             elif selected_motor == 3 and chamber_lid_active:
                 chamber_lid_angle = min(chamber_lid_angle + ANGLE_STEP, 180)
                 set_servo_angle(pwm_chamber_lid, chamber_lid_angle)
-                msg = f"Chamber Lid angle → {chamber_lid_angle}°"
+                msg = f"Chamber Lid angle: {chamber_lid_angle}°"
 
             elif selected_motor == 4 and soil_drop_active:
                 soil_drop_angle = min(soil_drop_angle + ANGLE_STEP, 180)
                 set_servo_angle(pwm_soil_drop, soil_drop_angle)
-                msg = f"Soil Dropper angle → {soil_drop_angle}°"
+                msg = f"Soil Dropper angle: {soil_drop_angle}°"
 
             else:
                 msg = "Select and activate a motor first (1-4, then Enter)."
@@ -464,28 +465,28 @@ def main(stdscr):
             if selected_motor == 1 and auger_active:
                 auger_speed = max(auger_speed - SPEED_STEP, 0)
                 set_spark_motor(pwm_auger, auger_speed, "forward")
-                msg = f"Auger speed → {auger_speed}%"
+                msg = f"Auger speed: {auger_speed}%"
 
             elif selected_motor == 2 and platform_active:
                 platform_speed = max(platform_speed - SPEED_STEP, 0)
                 set_spark_motor(pwm_platform, platform_speed, platform_direction.replace("up", "forward").replace("down", "reverse"))
-                msg = f"Platform speed → {platform_speed}% ({platform_direction})"
+                msg = f"Platform speed: {platform_speed}% ({platform_direction})"
 
             elif selected_motor == 3 and chamber_lid_active:
                 chamber_lid_angle = max(chamber_lid_angle - ANGLE_STEP, 0)
                 set_servo_angle(pwm_chamber_lid, chamber_lid_angle)
-                msg = f"Chamber Lid angle → {chamber_lid_angle}°"
+                msg = f"Chamber Lid angle: {chamber_lid_angle}°"
 
             elif selected_motor == 4 and soil_drop_active:
                 soil_drop_angle = max(soil_drop_angle - ANGLE_STEP, 0)
                 set_servo_angle(pwm_soil_drop, soil_drop_angle)
-                msg = f"Soil Dropper angle → {soil_drop_angle}°"
+                msg = f"Soil Dropper angle: {soil_drop_angle}°"
 
             else:
                 msg = "Select and activate a motor first (1-4, then Enter)."
 
         # ============================================================
-        #  REVERSE DIRECTION  (r key - Platform motor only)
+        # REVERSE DIRECTION (r key - Platform motor only)
         # ============================================================
         elif key == ord('r'):
             if selected_motor == 2 and platform_active:
@@ -494,21 +495,21 @@ def main(stdscr):
                 # Apply the new direction at the current speed
                 spark_dir = "forward" if platform_direction == "up" else "reverse"
                 set_spark_motor(pwm_platform, platform_speed, spark_dir)
-                msg = f"Platform direction → {platform_direction.upper()} (speed {platform_speed}%)"
+                msg = f"Platform direction: {platform_direction.upper()} (speed {platform_speed}%)"
             elif selected_motor == 1:
                 msg = "Auger motor is forward-only (no reverse)."
             else:
                 msg = "Reverse only works on the Platform motor (select 2)."
 
         # ============================================================
-        #  EMERGENCY STOP  (x key - stops ALL motors immediately)
+        # EMERGENCY STOP (x key - stops ALL motors immediately)
         # ============================================================
         elif key == ord('x'):
             stop_all_motors()
             msg = "ALL MOTORS STOPPED."
 
         # ============================================================
-        #  QUIT PROGRAM  (q key)
+        # QUIT PROGRAM (q key)
         # ============================================================
         elif key == ord('q'):
             break
