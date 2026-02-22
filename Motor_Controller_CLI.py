@@ -11,11 +11,11 @@
 # It runs on a Raspberry Pi and communicates over Ethernet to the base station computer.
 #
 # How the CLI works:
-#   1. A main menu shows available actions (set, off, stop, status, help, quit)
-#   2. Typing "set" shows the motor list and asks you to pick one (1-4)
-#   3. You then type a speed percentage (0-100%) or angle (0-180°)
-#   4. The program automatically calculates the correct PWM duty cycle and applies it
-#   5. Setting a motor to 0% speed or 0° angle automatically turns it off
+#   1. The command menu and motor list reprint before every prompt
+#   2. Type a motor number (1-4) to select it and enter a speed or angle
+#   3. The program automatically calculates the correct PWM duty cycle and applies it
+#   4. Setting a NEO 550 motor to 0% speed automatically turns it off
+#   5. Setting a servo to 0° moves it to the 0° position (resets the angle)
 #
 # Motors:
 #   1. Auger Motor
@@ -350,15 +350,25 @@ def printStatus():
 
 
 #####################################################################################################################
-# Motor List Display
-#   - Prints the numbered motor list so the user can pick one
-#   - Shows motor name, type, and what kind of input it accepts
-#   - Reprinted every time the user types "set" so they always see it
+# Command and Motor List Display
+#   - Prints the available commands AND the numbered motor list together
+#   - Reprinted every time the prompt comes back so the user always sees
+#     what they can type
+#   - The user types a motor number (1-4) directly to control it, or
+#     types a utility command like stop, off, status, help, or q
 #####################################################################################################################
 
-def printMotorList():
-    """Print the numbered list of available motors."""
-    print("")
+def printMenu():
+    """Print the commands and motor list."""
+    print("-" * 62)
+    print("  Commands:")
+    print("    1-4          Select a motor (see list below)")
+    print("    off          Turn off a single motor")
+    print("    stop / x     Stop ALL motors immediately")
+    print("    status / s   Show motor status")
+    print("    help / h     Show this menu")
+    print("    q            Quit program")
+    print("-" * 62)
     print("  Motors:")
     print("    [1] Auger Motor (NEO 550)    - speed 0-100%, forward only")
     print("    [2] Platform Motor (NEO 550) - speed 0-100%, up or down")
@@ -370,74 +380,31 @@ def printMotorList():
 
 
 #####################################################################################################################
-# Main Menu Display
-#   - Prints the available main-menu commands
-#   - Called on startup and when the user types "help" or "h"
-#####################################################################################################################
-
-def printHelp():
-    """Print the main menu commands."""
-    print("")
-    print("-" * 62)
-    print("  Main Menu:")
-    print("    set          Select a motor and set its speed/angle")
-    print("    off          Turn off a single motor")
-    print("    stop / x     Stop ALL motors immediately")
-    print("    status / s   Show motor status")
-    print("    help / h     Show this menu")
-    print("    q            Quit program")
-    print("-" * 62)
-    print("")
-
-
-
-
-#####################################################################################################################
-# Handle "set" Command - Select a Motor and Set Its Value
+# Handle Motor Selection - Set Speed or Angle for a Chosen Motor
 #
 #   How it works:
-#       1. Prints the motor list so the user can see all 4 options
-#       2. Asks "Select motor (1-4): " and reads the user's choice
-#       3. Based on the motor selected:
+#       1. The user already typed a motor number (1-4) at the main prompt
+#       2. Based on the motor selected:
 #           - Motors 1 & 2 (NEO 550): asks for a speed percentage (0-100%)
 #           - Motor 2 also asks for direction (up/down) before asking for speed
 #           - Motors 3 & 4 (servos): asks for an angle in degrees (0-180°)
-#       4. Setting 0% speed or 0° angle automatically turns that motor off
+#       3. Setting 0% speed automatically turns that NEO 550 motor off
+#       4. Setting 0° moves the servo to the 0° position (does NOT turn it off)
 #       5. The PWM duty cycle is calculated automatically from the typed value
 #
 #   Parameters:
-#       None - reads input directly from the user via input()
+#       motorNum (int) - which motor was selected (1-4), passed from the main loop
 #
 #   Returns:
 #       None - modifies global state variables and sends PWM signals
 #####################################################################################################################
 
-def handleSetCommand():
-    """Walk the user through selecting a motor and setting its speed or angle."""
+def handleMotorCommand(motorNum):
+    """Prompt for speed or angle and apply it to the selected motor."""
     global augerActive, augerSpeed
     global platformActive, platformSpeed, platformDirection
     global chamberLidActive, chamberLidAngle
     global soilDropActive, soilDropAngle
-
-    # Show all four motors so the user knows which number to type
-    printMotorList()
-
-    # ============================================================
-    # Step 1 - Ask which motor to control
-    # ============================================================
-    try:
-        motorRaw = input("  Select motor (1-4): ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print("")
-        return
-    try:
-        motorNum = int(motorRaw)
-    except ValueError:
-        print("[WARN] Please enter a number 1-4.")
-        return
-    if motorNum < 1 or motorNum > 4:
-        print("[WARN] Please enter a number 1-4.")
-        return
 
     # ============================================================
     # Motor 1 - Auger (NEO 550, forward only)
@@ -520,7 +487,7 @@ def handleSetCommand():
     # ============================================================
     # Motor 3 - Chamber Lid Servo (SM-S2309S)
     #   - Ask for angle 0-180°
-    #   - 0° automatically turns the servo off
+    #   - 0° moves the servo to the 0° position (resets angle)
     # ============================================================
     elif motorNum == 3:
         try:
@@ -537,11 +504,6 @@ def handleSetCommand():
             print("[WARN] Angle must be 0-180.")
             return
 
-        # 0° means turn the servo off
-        if angle == 0:
-            stopSingleMotor(3)
-            return
-
         chamberLidActive = True
         chamberLidAngle = angle
         setServoAngle(pwmChamberLid, chamberLidAngle)
@@ -551,7 +513,7 @@ def handleSetCommand():
     # ============================================================
     # Motor 4 - Soil Dropper Servo (SG92R)
     #   - Ask for angle 0-180°
-    #   - 0° automatically turns the servo off
+    #   - 0° moves the servo to the 0° position (resets angle)
     # ============================================================
     elif motorNum == 4:
         try:
@@ -566,11 +528,6 @@ def handleSetCommand():
             return
         if angle < 0 or angle > 180:
             print("[WARN] Angle must be 0-180.")
-            return
-
-        # 0° means turn the servo off
-        if angle == 0:
-            stopSingleMotor(4)
             return
 
         soilDropActive = True
@@ -618,23 +575,24 @@ def handleOffCommand():
 # Main CLI Loop
 #
 #   How it works:
-#       1. On startup, prints help menu and motor status
-#       2. Prompts the user with ">> " for a main-menu command
-#       3. Dispatches to the appropriate handler:
-#           - "set"  --> handleSetCommand() - select a motor and type a value
-#           - "off"  --> handleOffCommand() - turn off one motor
-#           - "stop" --> stopAllMotors() - emergency stop everything
-#       4. Status table prints after every successful command
+#       1. On startup, prints the command menu, motor list, and status table
+#       2. The menu and motor list reprint before every prompt so the user always
+#          sees what they can type
+#       3. The user types a motor number (1-4) to directly select and control it,
+#          or types a utility command (off, stop, status, help, q)
+#       4. After each command, the status table prints, then the menu reprints
 #       5. The loop continues until the user types "q"
 #       6. On exit (or crash), all PWM signals are stopped and GPIO pins are released
 #####################################################################################################################
 
 def main():
     """Run the main menu loop."""
-    printHelp()
     printStatus()
 
     while True:
+        # Reprint the commands and motor list before every prompt
+        printMenu()
+
         try:
             raw = input(">> ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -658,8 +616,7 @@ def main():
         # HELP (help, h)
         # ============================================================
         elif cmd in ("help", "h"):
-            printHelp()
-            continue  # Don't print status after help
+            continue  # Menu reprints at top of loop
 
         # ============================================================
         # STATUS (status, s)
@@ -669,10 +626,11 @@ def main():
             continue  # Already printing status
 
         # ============================================================
-        # SET - Select a motor and set its speed/angle
+        # MOTOR SELECTION (1-4)
+        #   - Type a motor number to jump straight into setting it
         # ============================================================
-        elif cmd == "set":
-            handleSetCommand()
+        elif cmd in ("1", "2", "3", "4"):
+            handleMotorCommand(int(cmd))
 
         # ============================================================
         # OFF - Turn off a single motor

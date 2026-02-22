@@ -303,35 +303,31 @@ The CLI will print available commands and a status table showing all 4 motors.
 
 h3. 8.2 Motor Controller Commands
 
-The CLI uses a menu-driven flow. You type a command at the {{>>}} prompt, then follow the prompts to select a motor and enter a value.
+The command menu and motor list reprint before every {{>>}} prompt. Type a motor number (1-4) to select it directly, or type a utility command.
 
 ||Command||Action||
-|{{set}}|Select a motor and set its speed (0-100%) or angle (0-180°)|
+|{{1}} / {{2}} / {{3}} / {{4}}|Select a motor and set its speed or angle|
 |{{off}}|Turn off a single motor (prompts for motor number)|
 |{{stop}} or {{x}}|Stop ALL motors immediately|
 |{{status}} or {{s}}|Show motor status|
-|{{help}} or {{h}}|Show the main menu|
+|{{help}} or {{h}}|Reprint the command menu|
 |{{q}}|Quit the program|
 
-When you type {{set}}, the program:
-# Shows the motor list (1-4)
-# Asks you to select a motor number
-# For motors 1 & 2 (NEO 550): asks for a speed percentage (0-100%)
-# For motor 2 only: asks for direction (up/down) before speed
-# For motors 3 & 4 (servos): asks for an angle (0-180°)
-# Setting 0% speed or 0° angle automatically turns that motor off
+After typing a motor number:
+* Motors 1 & 2 (NEO 550): prompts for a speed percentage (0-100%). Setting 0% turns the motor off.
+* Motor 2 only: prompts for direction (up/down) before speed.
+* Motors 3 & 4 (servos): prompts for an angle (0-180°). Setting 0° moves the servo to the 0° position (resets angle).
 
 h3. 8.3 Testing Procedure
 
 # Launch the CLI using the command above.
-# Type {{set}} and press Enter. The motor list should appear.
-# Select motor {{1}} (Auger). Enter speed {{50}}. The Auger motor should spin at 50% and the status table should show ON.
-# Type {{set}} again. Select motor {{1}}. Enter speed {{0}}. The motor should stop and deactivate (status OFF).
-# Type {{set}}. Select motor {{2}} (Platform). Enter direction {{up}}. Enter speed {{30}}. The Platform motor should start moving upward at 30%.
-# Type {{set}}. Select motor {{2}}. Enter direction {{down}}. Enter speed {{30}}. The Platform motor should reverse direction.
-# Type {{set}}. Select motor {{3}} (Chamber Lid). Enter angle {{90}}. The servo should rotate to 90°.
-# Type {{set}}. Select motor {{3}}. Enter angle {{0}}. The servo should turn off (0° auto-off).
-# Type {{set}}. Select motor {{4}} (Soil Dropper). Enter angle {{45}}. The servo should rotate to 45°.
+# Type {{1}} and press Enter. Enter speed {{50}}. The Auger motor should spin at 50% and the status table should show ON.
+# Type {{1}} again. Enter speed {{0}}. The motor should stop and deactivate (status OFF).
+# Type {{2}}. Enter direction {{up}}. Enter speed {{30}}. The Platform motor should start moving upward at 30%.
+# Type {{2}}. Enter direction {{down}}. Enter speed {{30}}. The Platform motor should reverse direction.
+# Type {{3}}. Enter angle {{90}}. The Chamber Lid servo should rotate to 90°.
+# Type {{3}}. Enter angle {{0}}. The servo should move to 0° (angle resets, motor stays ON).
+# Type {{4}}. Enter angle {{45}}. The Soil Dropper servo should rotate to 45°.
 # Type {{off}}. Enter motor {{4}}. The Soil Dropper should deactivate.
 # Type {{stop}} or {{x}}. All motors should stop and all statuses should reset to OFF.
 # Type {{q}} to quit. The terminal should print "[INFO] All motors stopped. GPIO cleaned up safely."

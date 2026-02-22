@@ -9,17 +9,17 @@ The scripts are designed to run on a Raspberry Pi and provide interfaces for act
 Run with:
 python Motor_Controller_CLI.py
 
-Controls 4 motors via a menu-driven command interface. Type a command at the prompt, then follow the prompts to select a motor and enter a value.
+Controls 4 motors via a command-line interface. The command menu and motor list reprint before every prompt.
 
-Main Menu:
-- set --> Select a motor, then type a speed (0-100%) or angle (0-180°)
+Commands:
+- 1 / 2 / 3 / 4 --> Select a motor and set its speed or angle
 - off --> Turn off a single motor (prompts for motor number)
 - stop / x --> Stop all motors immediately
 - status / s --> Show motor status
-- help / h --> Show the main menu
+- help / h --> Reprint the command menu
 - q --> Quit program
 
-Setting a motor to 0% speed or 0° angle automatically turns it off.
+Setting a NEO 550 motor to 0% speed turns it off. Setting a servo to 0° resets the angle.
 
 ---
 
