@@ -1,2 +1,4 @@
 hx711 @ git+https://github.com/tatobari/hx711py.git@6eed5da37eadbcceeeb06c0c7e0b5d307919a318
 RPi.GPIO==0.7.1
+opencv-python
+pyserial

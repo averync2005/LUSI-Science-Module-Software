@@ -283,11 +283,11 @@ h2. 8. Testing the Motor Controller
 
 The Motor Controller CLI controls 4 motors on the LUSI Science Module:
 
-||Motor||Type||Purpose||Control||
-|1. Auger Motor|NEO 550 (via Spark MAX)|Digs soil|Speed 0-100%, forward only|
-|2. Platform Motor|NEO 550 (via Spark MAX)|Raises/lowers the soil collection platform|Speed 0-100%, bidirectional (up/down)|
-|3. Testing Chamber Lid|SM-S2309S servo|Rotates testing chamber lid|Angle 0-180°|
-|4. Soil Dropper|SG92R micro servo|Rotates soil dropper lid|Angle 0-180°|
+||Motor||Type||GPIO Pin (BCM)||Purpose||Control||
+|1. Auger Motor|NEO 550 (via Spark MAX)|12|Digs soil|Speed 0-100%, forward only|
+|2. Platform Motor|NEO 550 (via Spark MAX)|13|Raises/lowers the soil collection platform|Speed 0-100%, bidirectional (up/down)|
+|3. Testing Chamber Lid|SM-S2309S servo|18|Rotates testing chamber lid|Angle 0-180°|
+|4. Soil Dropper|SG92R micro servo|19|Rotates soil dropper lid|Angle 0-180°|
 
 h3. 8.1 Running the Motor Controller
 
@@ -296,7 +296,7 @@ Make sure you are in the project root directory with the virtual environment act
 {code}
 cd ~/Desktop/LUSI-Science-Module
 source venv/bin/activate
-python Hardware_Controllers/Motor_Controller_CLI.py
+python Motor_Controller_CLI.py
 {code}
 
 The CLI will launch in the terminal and display a live dashboard with all 4 motors and their current status.
@@ -328,65 +328,92 @@ h3. 8.3 Testing Procedure
 # Press the *UP arrow* repeatedly. The angle should increase by 1° per key press, and the servo should rotate.
 # Press *4* to select the Soil Dropper Servo and repeat the same activation and angle test.
 # Press *x* at any time to immediately stop all motors. All statuses should reset to OFF.
-# Press *q* to quit the program. The terminal should print "All motors stopped. GPIO cleaned up safely."
+# Press *q* to quit the program. The terminal should print "[INFO] All motors stopped. GPIO cleaned up safely."
 
 ----
 
-h2. 9. Testing the Mass Sensor (HX711)
+h2. 9. Testing the Weight Sensor
 
-The mass sensor script reads weight data from a load cell connected to the Pi through an HX711 amplifier board.
+The weight sensor script reads weight data from a load cell connected to the Pi through an HX711 amplifier board.
 
-h3. 9.1 Running the Mass Sensor
+||Pin||GPIO (BCM)||Purpose||
+|DT (Data)|27|Receives weight data from the HX711|
+|SCK (Clock)|17|Sends timing pulses to the HX711|
+
+h3. 9.1 Running the Weight Sensor
 
 {code}
 cd ~/Desktop/LUSI-Science-Module
 source venv/bin/activate
-python Hardware_Controllers/Mass_Sensor_HX711.py
+python Weight_Sensor.py
 {code}
 
 h3. 9.2 Expected Behavior
 
-# On startup, the script prints: "Taring... Please remove all weight from the load cell."
+# On startup, the script prints: "[INFO] Taring... Please remove all weight from the load cell."
 # Make sure nothing is on the load cell at this point. The script automatically tares (zeroes) itself.
-# After taring, it prints: "Tare complete."
+# After taring, it prints: "[INFO] Tare complete."
 # The script then continuously prints the measured weight in grams once per second, for example: {{Weight: 0.00 g}}
 # Place a known weight on the load cell and verify that the displayed value changes accordingly.
-# Press *CTRL+C* to stop the script. It will print: "Exiting... Program stopped."
+# Press *CTRL+C* to stop the script. It will print: "[INFO] Exiting... Program stopped." followed by "[INFO] GPIO cleaned up safely." and automatically clean up the GPIO pins.
 
 ----
 
-h2. 10. Testing the Camera (ELP Camera)
+h2. 10. Testing the Camera System
 
-*Note:* Camera testing instructions depend on the current state of the ELP_Camera.py software. Refer to the script's built-in help for available options:
+The camera system script combines live preview, camera scanning, and serial port listing into a single file.
+
+h3. 10.1 Scan for Connected Cameras
+
+Before launching live preview, check which camera indices are available:
 
 {code}
 cd ~/Desktop/LUSI-Science-Module
 source venv/bin/activate
-python Site_Analysis/ELP_Camera.py --help
-{code}
-
-h3. 10.1 Utility Scripts
-
-*List connected cameras* - Scans for available camera devices and prints which indices are active:
-
-{code}
-python Site_Analysis/List_Connected_Cams.py
+python Camera_System.py scan
 {code}
 
 Typical output:
 * Index 0: Built-in webcam (if running on a laptop)
 * Index 1+: External USB cameras (e.g., the ELP camera)
 
-*List serial ports* - Detects available serial ports and optionally probes for GNSS/NMEA devices:
+h3. 10.2 Live Camera Preview
+
+Launch the live preview with the default settings:
 
 {code}
-python Site_Analysis/List_Serial_Ports.py
+python Camera_System.py
+{code}
+
+Or with custom options (use the index found in the scan step):
+
+{code}
+python Camera_System.py --index 0 --width 640 --height 480
+{code}
+
+For all available options:
+
+{code}
+python Camera_System.py --help
+{code}
+
+Hotkeys in the live preview window:
+* *c* - Capture a photo (saved to captures/photos/)
+* *r* - Start/stop video recording (saved to captures/videos/)
+* *q* - Quit
+
+h3. 10.3 List Serial Ports
+
+Detects available serial ports and optionally probes for GNSS/NMEA devices:
+
+{code}
+python Camera_System.py ports
 {code}
 
 To also probe for GNSS signals:
 
 {code}
-python Site_Analysis/List_Serial_Ports.py --probe
+python Camera_System.py ports --probe
 {code}
 
 ----
@@ -396,10 +423,11 @@ h2. 11. Quick Reference
 ||Task||Command / Action||
 |SSH into the Pi|{{ssh pi@192.168.137.2}} (password: {{lusi}})|
 |Activate the virtual environment|{{cd ~/Desktop/LUSI-Science-Module && source venv/bin/activate}}|
-|Run motor controller|{{python Hardware_Controllers/Motor_Controller_CLI.py}}|
-|Run mass sensor|{{python Hardware_Controllers/Mass_Sensor_HX711.py}}|
-|List cameras|{{python Site_Analysis/List_Connected_Cams.py}}|
-|List serial ports|{{python Site_Analysis/List_Serial_Ports.py}}|
+|Run motor controller|{{python Motor_Controller_CLI.py}}|
+|Run weight sensor|{{python Weight_Sensor.py}}|
+|Live camera preview|{{python Camera_System.py}}|
+|Scan for cameras|{{python Camera_System.py scan}}|
+|List serial ports|{{python Camera_System.py ports}}|
 |Check network config (Pi)|{{ip addr}} / {{ip route}}|
 |Add route if Internet fails|{{sudo ip route add default via 192.168.137.1}}|
 |Test connectivity (from Windows)|{{ping 192.168.137.2}}|
