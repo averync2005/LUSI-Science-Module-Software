@@ -619,25 +619,63 @@ fps = args.fps
 
 #####################################################################################################################
 # USB Camera Initialization
-#   - Opens the USB camera by device index (e.g., 0 = /dev/video0)
-#   - Tries V4L2 backend first (best for Linux), falls back to default backend
+#   - If --device is specified, opens that device directly
+#   - If the default device (0) fails, auto-scans /dev/video* to find a working USB camera
+#   - The Pi's camera subsystem creates many video device nodes (e.g., /dev/video10-23)
+#     but only some are actual capture devices - the rest are metadata/control nodes
+#   - A device is "working" if OpenCV can open it AND it returns a valid frame
 #   - Sets the resolution to 800x600 and the requested frame rate
 #   - The expected resolution is 800x600 - other resolutions may cause issues
-#   - If the camera cannot be opened, the program exits with an error
 #####################################################################################################################
 
+def tryOpenCamera(deviceIndex):
+    """Try to open a camera at the given device index. Returns the VideoCapture object or None."""
+    # Try V4L2 backend first (best for Linux)
+    testCap = cv2.VideoCapture(deviceIndex, cv2.CAP_V4L2)
+    if testCap.isOpened():
+        ret, testFrame = testCap.read()
+        if ret and testFrame is not None:
+            return testCap
+        testCap.release()
+
+    # Fall back to default backend
+    testCap = cv2.VideoCapture(deviceIndex)
+    if testCap.isOpened():
+        ret, testFrame = testCap.read()
+        if ret and testFrame is not None:
+            return testCap
+        testCap.release()
+
+    return None
+
+
+# First try the user-specified device (or default 0)
 print(f"[INFO] Opening USB camera (device {dev}) at {fps} FPS...")
+cap = tryOpenCamera(dev)
 
-# Try V4L2 backend first (Linux), then fall back to default (cross-platform)
-cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
-if not cap.isOpened():
-    print("[INFO] V4L2 backend unavailable, trying default backend...")
-    cap = cv2.VideoCapture(dev)
+# If that failed, auto-scan all /dev/video* devices
+if cap is None:
+    import glob
+    videoDevices = sorted(glob.glob("/dev/video*"))
+    if videoDevices:
+        print(f"[INFO] Device {dev} not available. Scanning {len(videoDevices)} video devices...")
+        for devPath in videoDevices:
+            devNum = int(devPath.replace("/dev/video", ""))
+            if devNum == dev:
+                continue  # Already tried this one
+            print(f"[INFO]   Trying /dev/video{devNum}...", end="")
+            cap = tryOpenCamera(devNum)
+            if cap is not None:
+                dev = devNum
+                print(f" OK (capture device found)")
+                break
+            else:
+                print(f" skip")
 
-if not cap.isOpened():
-    print(f"[ERROR] Cannot open camera device {dev}")
-    print("[INFO] Check that the camera is plugged into a USB port")
-    print("[INFO] List available cameras with: ls /dev/video*")
+if cap is None:
+    print("[ERROR] No working camera found on any /dev/video* device")
+    print("[INFO] Check that the USB camera is plugged into a blue USB 3.0 port")
+    print("[INFO] Run 'v4l2-ctl --list-devices' to see connected cameras (install with: sudo apt install v4l-utils)")
     exit(1)
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
@@ -647,7 +685,7 @@ cap.set(cv2.CAP_PROP_FPS, fps)
 actualWidth = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
 actualHeight = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 actualFps = cap.get(cv2.CAP_PROP_FPS)
-print(f"[INFO] Camera opened: {int(actualWidth)}x{int(actualHeight)} @ {actualFps} FPS")
+print(f"[INFO] Camera opened: /dev/video{dev} at {int(actualWidth)}x{int(actualHeight)} @ {actualFps} FPS")
 
 
 
