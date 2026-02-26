@@ -16,6 +16,8 @@
 #
 # Hardware setup:
 #   - A USB camera pointed at a diffraction grating spectroscope
+#   - Plug the camera into a blue USB 3.0 port on the Pi 4 for best bandwidth
+#     (black USB 2.0 ports also work but may limit frame rate)
 #   - The camera captures the dispersed spectrum as a horizontal band of color
 #   - Software reads pixel intensities along the center row and maps pixel positions to wavelengths
 #   - Target absorbance wavelength: 440 nm (for carbonato-cobaltate (III) detection)
@@ -617,18 +619,25 @@ fps = args.fps
 
 #####################################################################################################################
 # USB Camera Initialization
-#   - Opens the USB camera at /dev/video<N> using the V4L2 backend
+#   - Opens the USB camera by device index (e.g., 0 = /dev/video0)
+#   - Tries V4L2 backend first (best for Linux), falls back to default backend
 #   - Sets the resolution to 800x600 and the requested frame rate
 #   - The expected resolution is 800x600 - other resolutions may cause issues
 #   - If the camera cannot be opened, the program exits with an error
 #####################################################################################################################
 
-print(f"[INFO] Opening USB camera /dev/video{dev} at {fps} FPS...")
-cap = cv2.VideoCapture(f"/dev/video{dev}", cv2.CAP_V4L)
+print(f"[INFO] Opening USB camera (device {dev}) at {fps} FPS...")
+
+# Try V4L2 backend first (Linux), then fall back to default (cross-platform)
+cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
+if not cap.isOpened():
+    print("[INFO] V4L2 backend unavailable, trying default backend...")
+    cap = cv2.VideoCapture(dev)
 
 if not cap.isOpened():
-    print(f"[ERROR] Cannot open camera /dev/video{dev}")
-    print("[INFO] List available cameras with: v4l2-ctl --list-devices")
+    print(f"[ERROR] Cannot open camera device {dev}")
+    print("[INFO] Check that the camera is plugged into a USB port")
+    print("[INFO] List available cameras with: ls /dev/video*")
     exit(1)
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)

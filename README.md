@@ -69,6 +69,9 @@ python Spectrometer.py --fullscreen
 Captures spectral data from a USB camera-based diffraction grating spectrometer and displays a
 real-time wavelength vs. intensity graph with peak detection, calibration, and data export.
 
+USB port: Plug the spectrometer camera into one of the **blue USB 3.0 ports** on the Pi 4 for best
+bandwidth. The black USB 2.0 ports will also work but may limit frame rate.
+
 Find your camera device number with: v4l2-ctl --list-devices
 
 Key bindings:
