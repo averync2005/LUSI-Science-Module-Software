@@ -59,6 +59,40 @@ Lists available serial ports. Use --probe to check each port for GNSS/NMEA signa
 
 ---
 
+## Spectrometer
+Run with:
+python Spectrometer.py
+python Spectrometer.py --device 0 --fps 30
+python Spectrometer.py --waterfall
+python Spectrometer.py --fullscreen
+
+Captures spectral data from a USB camera-based diffraction grating spectrometer and displays a
+real-time wavelength vs. intensity graph with peak detection, calibration, and data export.
+
+Find your camera device number with: v4l2-ctl --list-devices
+
+Key bindings:
+- h --> Toggle peak hold
+- m --> Toggle measurement cursor (shows wavelength at mouse position)
+- p --> Toggle pixel recording mode (click peaks to select calibration points)
+- c --> Run calibration (enter known wavelengths in the terminal)
+- x --> Clear calibration points
+- s --> Save spectrum as PNG + CSV
+- o / l --> Savitzky-Golay filter up / down
+- i / k --> Peak distance up / down
+- u / j --> Label threshold up / down
+- q --> Quit
+
+Options:
+- --device N --> USB camera device number (default: 0)
+- --fps N --> Frame rate (default: 30)
+- --fullscreen --> Fullscreen mode (800x480)
+- --waterfall --> Enable waterfall display (spectral changes over time)
+
+Calibration data is saved to caldata.txt and persists across restarts.
+
+---
+
 ## Dependencies
 Install required Python libraries:
 pip install -r requirements.txt
@@ -68,6 +102,7 @@ Or individually:
 - pip install pigpio
 - pip install git+https://github.com/tatobari/hx711py.git
 - pip install opencv-python
+- pip install numpy
 - pip install pyserial
 
 ---
