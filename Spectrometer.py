@@ -238,7 +238,7 @@ def savitzkyGolay(y, windowSize, order, deriv=0, rate=1):
     halfWindow = (windowSize - 1) // 2
 
     # Precompute the filter coefficients using a least-squares polynomial fit
-    b = np.mat([[k ** i for i in orderRange] for k in range(-halfWindow, halfWindow + 1)])
+    b = np.asmatrix([[k ** i for i in orderRange] for k in range(-halfWindow, halfWindow + 1)])
     m = np.linalg.pinv(b).A[deriv] * rate ** deriv * factorial(deriv)
 
     # Pad the signal at the edges by reflecting values to avoid boundary artifacts
