@@ -1,0 +1,12 @@
+{
+  "timestampUtc": "2026-02-27T00-35-13.371006Z",
+  "cameraIndex": 1,
+  "frameWidth": 1920,
+  "frameHeight": 1080,
+  "requestedFps": 30.0,
+  "measuredFps": 8.39,
+  "exposure": 0.0,
+  "gain": 0.0,
+  "codec": "MJPG",
+  "software": "Camera_System.py"
+}
