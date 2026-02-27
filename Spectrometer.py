@@ -77,6 +77,8 @@ import time
 import argparse
 from math import factorial
 import os
+import signal
+import glob
 
 
 
@@ -619,63 +621,96 @@ fps = args.fps
 
 #####################################################################################################################
 # USB Camera Initialization
-#   - If --device is specified, opens that device directly
+#   - If --device is specified, opens that device path directly
 #   - If the default device (0) fails, auto-scans /dev/video* to find a working USB camera
 #   - The Pi's camera subsystem creates many video device nodes (e.g., /dev/video10-23)
 #     but only some are actual capture devices - the rest are metadata/control nodes
-#   - A device is "working" if OpenCV can open it AND it returns a valid frame
+#   - Before trying to open a device, we check /sys/class/video4linux/ to filter out
+#     non-capture nodes (only devices with index "0" in their sysfs entry are primary
+#     capture devices - the rest are metadata/output/subdev nodes)
+#   - Opens cameras by path string (e.g., "/dev/video14") instead of integer index,
+#     which is more reliable for high device numbers
 #   - Sets the resolution to 800x600 and the requested frame rate
 #   - The expected resolution is 800x600 - other resolutions may cause issues
 #####################################################################################################################
 
-def tryOpenCamera(deviceIndex):
-    """Try to open a camera at the given device index. Returns the VideoCapture object or None."""
-    # Try V4L2 backend first (best for Linux)
-    testCap = cv2.VideoCapture(deviceIndex, cv2.CAP_V4L2)
+def findCaptureDevices():
+    """Find /dev/video* devices that are actual video capture nodes (not metadata/subdev).
+    Checks /sys/class/video4linux/ to filter by device index and capability."""
+    candidates = []
+    sysDevices = sorted(glob.glob("/sys/class/video4linux/video*"))
+
+    for sysPath in sysDevices:
+        devName = os.path.basename(sysPath)
+        devPath = f"/dev/{devName}"
+
+        # Only consider devices that actually exist
+        if not os.path.exists(devPath):
+            continue
+
+        # Check the sysfs "index" file - index 0 = primary capture device
+        indexFile = os.path.join(sysPath, "index")
+        try:
+            with open(indexFile, "r") as f:
+                idx = int(f.read().strip())
+                if idx != 0:
+                    continue  # Skip non-primary nodes (metadata, output, subdev)
+        except Exception:
+            continue
+
+        # Read the device name for logging
+        nameFile = os.path.join(sysPath, "name")
+        try:
+            with open(nameFile, "r") as f:
+                camName = f.read().strip()
+        except Exception:
+            camName = "Unknown"
+
+        candidates.append((devPath, camName))
+
+    return candidates
+
+
+def tryOpenCamera(devicePath):
+    """Try to open a camera by path string. Returns the VideoCapture object or None."""
+    testCap = cv2.VideoCapture(devicePath, cv2.CAP_V4L2)
     if testCap.isOpened():
         ret, testFrame = testCap.read()
         if ret and testFrame is not None:
             return testCap
         testCap.release()
-
-    # Fall back to default backend
-    testCap = cv2.VideoCapture(deviceIndex)
-    if testCap.isOpened():
-        ret, testFrame = testCap.read()
-        if ret and testFrame is not None:
-            return testCap
-        testCap.release()
-
     return None
 
 
-# First try the user-specified device (or default 0)
-print(f"[INFO] Opening USB camera (device {dev}) at {fps} FPS...")
-cap = tryOpenCamera(dev)
+# First try the user-specified device
+userDevPath = f"/dev/video{dev}"
+print(f"[INFO] Opening USB camera ({userDevPath}) at {fps} FPS...")
+cap = tryOpenCamera(userDevPath)
 
-# If that failed, auto-scan all /dev/video* devices
+# If that failed, auto-scan only the real capture devices
 if cap is None:
-    import glob
-    videoDevices = sorted(glob.glob("/dev/video*"))
-    if videoDevices:
-        print(f"[INFO] Device {dev} not available. Scanning {len(videoDevices)} video devices...")
-        for devPath in videoDevices:
-            devNum = int(devPath.replace("/dev/video", ""))
-            if devNum == dev:
+    captureDevices = findCaptureDevices()
+    if captureDevices:
+        print(f"[INFO] {userDevPath} not available. Found {len(captureDevices)} capture device(s):")
+        for devPath, camName in captureDevices:
+            print(f"[INFO]   {devPath} - {camName}")
+
+        for devPath, camName in captureDevices:
+            if devPath == userDevPath:
                 continue  # Already tried this one
-            print(f"[INFO]   Trying /dev/video{devNum}...", end="")
-            cap = tryOpenCamera(devNum)
+            print(f"[INFO]   Trying {devPath} ({camName})...", end="")
+            cap = tryOpenCamera(devPath)
             if cap is not None:
-                dev = devNum
-                print(f" OK (capture device found)")
+                dev = int(devPath.replace("/dev/video", ""))
+                print(f" OK")
                 break
             else:
                 print(f" skip")
 
 if cap is None:
-    print("[ERROR] No working camera found on any /dev/video* device")
+    print("[ERROR] No working camera found")
     print("[INFO] Check that the USB camera is plugged into a blue USB 3.0 port")
-    print("[INFO] Run 'v4l2-ctl --list-devices' to see connected cameras (install with: sudo apt install v4l-utils)")
+    print("[INFO] If the camera was just disconnected, unplug and replug it")
     exit(1)
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
@@ -818,6 +853,17 @@ font = cv2.FONT_HERSHEY_SIMPLEX
 
 print("[INFO] Spectrometer running. Press 'q' to quit.")
 print("[INFO] Press 'h' for peak hold, 'm' for measurement cursor, 'p' to record pixels, 'c' to calibrate")
+
+
+# Signal handler for clean Ctrl+C shutdown (releases the camera so /dev/videoN stays available)
+def cleanShutdown(signum, frame):
+    print("\n[INFO] Ctrl+C detected - releasing camera and closing windows...")
+    cap.release()
+    cv2.destroyAllWindows()
+    print("[INFO] Spectrometer shut down")
+    exit(0)
+
+signal.signal(signal.SIGINT, cleanShutdown)
 
 while cap.isOpened():
     ret, frame = cap.read()
