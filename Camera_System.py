@@ -1146,7 +1146,7 @@ def buildParser():
     parser.add_argument("--height", type=int, default=720, help="Requested frame height")
     parser.add_argument("--fps", type=float, default=30.0, help="Requested FPS; 0 to skip setting FPS")
     parser.add_argument("--codec", type=str, default="MJPG", help="FourCC video codec for recording")
-    parser.add_argument("--saveDir", type=str, default="captures", help="Directory for saved images and videos")
+    parser.add_argument("--saveDir", type=str, default="Camera_Captures", help="Directory for saved images and videos")
     parser.add_argument("--record", type=str, default=None, help="Start recording to this file path")
     parser.add_argument("--noDshow", action="store_true", help="Do not force DirectShow backend on Windows")
     parser.add_argument("--exposure", type=float, default=None, help="Set exposure value if supported")
