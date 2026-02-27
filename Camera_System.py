@@ -1006,7 +1006,7 @@ def runLivePreview(args):
         # ---- Auto-start recording if --record was passed ----
         if pendingRecordPath and videoWriter is None:
             outputPath = pendingRecordPath
-            if not os.path.isabs(outputPath):
+            if not os.path.isabs(outputPath) and not outputPath.startswith(args.saveDir):
                 if os.path.dirname(outputPath):
                     outputPath = os.path.join(args.saveDir, outputPath)
                 else:
