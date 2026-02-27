@@ -561,14 +561,18 @@ def generateGraticule(wavelengthData):
 #       str - status message showing when the last save occurred
 #
 #   How it works:
-#       1. Generates a timestamp for the filename (e.g., "Spectrum-20260226--153000")
-#       2. Saves the spectrum graph as a PNG image
-#       3. If waterfall is enabled, saves the waterfall display as a separate PNG
-#       4. Saves wavelength and intensity data as a CSV file (Wavelength,Intensity)
+#       1. Creates the captures folder if it doesn't exist
+#       2. Generates a timestamp for the filename (e.g., "Spectrum-20260226--153000")
+#       3. Saves the spectrum graph as a PNG image
+#       4. If waterfall is enabled, saves the waterfall display as a separate PNG
+#       5. Saves wavelength and intensity data as a CSV file (Wavelength,Intensity)
 #####################################################################################################################
 
+CAPTURES_DIR = "Spectrometer_Captures"
+
 def saveSnapshot(saveData):
-    """Save spectrum graph as PNG and intensity data as CSV."""
+    """Save spectrum graph as PNG and intensity data as CSV into CAPTURES_DIR."""
+    os.makedirs(CAPTURES_DIR, exist_ok=True)
     now = time.strftime("%Y%m%d--%H%M%S")
     timeNow = time.strftime("%H:%M:%S")
     spectrumImage = saveData[0]
@@ -576,17 +580,20 @@ def saveSnapshot(saveData):
 
     if len(saveData) > 2:
         waterfallImage = saveData[2]
-        cv2.imwrite(f"waterfall-{now}.png", waterfallImage)
-        print(f"[INFO] Waterfall image saved: waterfall-{now}.png")
+        path = os.path.join(CAPTURES_DIR, f"waterfall-{now}.png")
+        cv2.imwrite(path, waterfallImage)
+        print(f"[INFO] Waterfall image saved: {path}")
 
-    cv2.imwrite(f"spectrum-{now}.png", spectrumImage)
-    print(f"[INFO] Spectrum image saved: spectrum-{now}.png")
+    imgPath = os.path.join(CAPTURES_DIR, f"spectrum-{now}.png")
+    cv2.imwrite(imgPath, spectrumImage)
+    print(f"[INFO] Spectrum image saved: {imgPath}")
 
-    with open(f"Spectrum-{now}.csv", "w") as f:
+    csvPath = os.path.join(CAPTURES_DIR, f"Spectrum-{now}.csv")
+    with open(csvPath, "w") as f:
         f.write("Wavelength,Intensity\n")
         for wl, intensity in zip(graphData[0], graphData[1]):
             f.write(f"{wl},{intensity}\n")
-    print(f"[INFO] CSV data saved: Spectrum-{now}.csv")
+    print(f"[INFO] CSV data saved: {csvPath}")
 
     statusMessage = f"Last Save: {timeNow}"
     return statusMessage
