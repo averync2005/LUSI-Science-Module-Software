@@ -117,9 +117,10 @@ SPARK_MAX_REV_US = 1000  # Full speed reverse
 #
 # Chamber Lid servo (SM-S2309S) - this servo only rotates ~90° over the
 # standard 500-2500 µs range, so we extend to 4500 µs to reach 180°.
-# Uses the wave API (DMA waveforms) which has no pulse width restriction.
-# Note: when the commanded angle is 0°, we intentionally turn the signal OFF
-# to avoid hunting at the extreme minimum pulse width.
+# Hybrid control for stability:
+#   - 0° : signal OFF (no hunting at the floor)
+#   - 500-2500 µs : set_servo_pulsewidth (clean DMA-timed signal)
+#   - >2500 µs : wave API (DMA waveform, no upper limit)
 CHAMBER_LID_MIN_US = 500   # 0° position
 CHAMBER_LID_MAX_US = 4500  # 180° position
 #
@@ -316,8 +317,13 @@ def setServoAngle(pin, angle, minUs, maxUs):
         if angle <= 0:
             setChamberLidPulse(0)
             return
-        # DMA waveform - no pulse width restriction, jitter-free
-        setChamberLidPulse(pulseWidth)
+
+        # Hybrid stability: use set_servo_pulsewidth for 500-2500 µs,
+        # and wave API for extended range above 2500 µs.
+        if pulseWidth <= 2500:
+            pi.set_servo_pulsewidth(pin, int(pulseWidth))
+        else:
+            setChamberLidPulse(pulseWidth)
     else:
         # Standard DMA servo control - limited to 500-2500 µs
         pi.set_servo_pulsewidth(pin, int(pulseWidth))
