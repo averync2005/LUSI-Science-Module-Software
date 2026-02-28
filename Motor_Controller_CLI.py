@@ -109,18 +109,15 @@ SPARK_MAX_REV_US = 1000  # Full speed reverse
 # adjust the MIN/MAX constants below and test through the CLI.
 #
 # PWM method per servo:
-#   Chamber Lid (GPIO 18): uses pigpio WAVE API (DMA-timed, no pulse width limit)
-#   Soil Dropper (GPIO 19): uses pi.set_servo_pulsewidth() (DMA-timed, 500-2500 µs)
-#   Both methods use the Pi's DMA hardware for jitter-free pulse generation.
-#   NEVER use pi.hardware_PWM() for servos - it uses a different clock
-#   peripheral that produces jittery signals unsuitable for servo control.
+#   Chamber Lid (GPIO 18): pigpio WAVE API ONLY (DMA-timed, no pulse width limit)
+#   Soil Dropper (GPIO 19): pi.set_servo_pulsewidth() (DMA-timed, 500-2500 µs)
+#   NEVER use pi.hardware_PWM() for servos - its clock source jitters servos.
 #
 # Chamber Lid servo (SM-S2309S) - this servo only rotates ~90° over the
 # standard 500-2500 µs range, so we extend to 4500 µs to reach 180°.
-# Hybrid control for stability:
+# Single-method control for stability:
 #   - 0° : signal OFF (no hunting at the floor)
-#   - 500-2500 µs : set_servo_pulsewidth (clean DMA-timed signal)
-#   - >2500 µs : wave API (DMA waveform, no upper limit)
+#   - >0°: wave API only (clean DMA waveform, no upper limit)
 CHAMBER_LID_MIN_US = 500   # 0° position
 CHAMBER_LID_MAX_US = 4500  # 180° position
 #
@@ -306,26 +303,19 @@ def setChamberLidPulse(pulseWidthUs):
 def setServoAngle(pin, angle, minUs, maxUs):
     """Move a servo motor to the specified angle (0-180°).
 
-    Automatically routes to the correct PWM method based on pin:
-      Chamber lid (GPIO 18) --> DMA waveform (wave API, no pulse width limit)
-      All other servos       --> set_servo_pulsewidth (DMA, 500-2500 µs)"""
+    Chamber lid (GPIO 18): wave API ONLY (or off at 0°)
+    Soil dropper (GPIO 19): set_servo_pulsewidth ONLY"""
     angle = max(0, min(180, angle))
     pulseWidth = angleToPulseWidth(angle, minUs, maxUs)
 
     if pin == CHAMBER_LID_PIN:
-        # Special-case 0°: turn the signal off to prevent jitter at the floor
+        # 0° -> turn signal off
         if angle <= 0:
             setChamberLidPulse(0)
             return
-
-        # Hybrid stability: use set_servo_pulsewidth for 500-2500 µs,
-        # and wave API for extended range above 2500 µs.
-        if pulseWidth <= 2500:
-            pi.set_servo_pulsewidth(pin, int(pulseWidth))
-        else:
-            setChamberLidPulse(pulseWidth)
+        # All nonzero angles -> wave API (DMA waveform)
+        setChamberLidPulse(pulseWidth)
     else:
-        # Standard DMA servo control - limited to 500-2500 µs
         pi.set_servo_pulsewidth(pin, int(pulseWidth))
 
 
