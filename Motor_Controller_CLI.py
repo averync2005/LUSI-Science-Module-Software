@@ -105,17 +105,23 @@ SPARK_MAX_REV_US = 1000  # Full speed reverse
 
 # Servo pulse width boundaries (microseconds)
 # Each servo may need different values to map 0-180° correctly.
-# To calibrate: run 'pigs s <PIN> <PULSE>' on the Pi and adjust until
-# the servo physically reaches 0° at MIN and 180° at MAX.
+# To calibrate: run 'pigs hp <PIN> 50 <DUTY>' on the Pi for the chamber lid
+# (hardware PWM), or 'pigs s <PIN> <PULSE>' for the soil dropper.
 #
-# Chamber Lid servo - this servo only rotates ~90° over the standard
-# 500-2500 µs range, so we extend to 4500 µs to reach 180° physically.
-# Uses pi.hardware_PWM() instead of set_servo_pulsewidth() to bypass
-# pigpio's 500-2500 µs hard limit.
+# IMPORTANT - PWM method per servo:
+#   Chamber Lid (GPIO 18): uses ONLY pi.hardware_PWM()  (hardware PWM peripheral)
+#   Soil Dropper (GPIO 19): uses ONLY pi.set_servo_pulsewidth()  (DMA-based PWM)
+#   NEVER mix both methods on the same pin - they use different hardware and
+#   will fight each other, causing the servo to jitter uncontrollably.
+#
+# Chamber Lid servo (SM-S2309S) - this servo only rotates ~90° over the
+# standard 500-2500 µs range, so we extend to 4500 µs to reach 180°.
+# Uses hardware_PWM exclusively (no pulse width limit).
 CHAMBER_LID_MIN_US = 500   # 0° position
 CHAMBER_LID_MAX_US = 4500  # 180° position
 #
-# Soil Dropper servo (SG92R) - standard range
+# Soil Dropper servo (SG92R) - standard 500-2500 µs range.
+# Uses set_servo_pulsewidth exclusively (cleanest DMA signal).
 SOIL_DROP_MIN_US = 500   # 0° position
 SOIL_DROP_MAX_US = 2500  # 180° position
 
@@ -179,8 +185,8 @@ if not pi.connected:
 
 pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)  # NEO 550 - start at neutral
 pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)  # NEO 550 - start at neutral
-pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)  # Servo - signal off (uses hardware_PWM)
-pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)  # Servo - signal off
+pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)  # Servo off (hardware PWM ONLY on this pin)
+pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)  # Servo off (DMA PWM ONLY on this pin)
 
 
 
@@ -258,19 +264,22 @@ def setServoPulseRaw(pin, pulseWidthUs):
         pi.hardware_PWM(pin, 50, dutyPpm)
 
 
-def setServoAngle(pin, angle, minUs, maxUs):
+def setServoAngle(pin, angle, minUs, maxUs, useHardwarePwm=False):
     """Move a servo motor to the specified angle (0-180°).
-    Uses set_servo_pulsewidth for pulse widths within 500-2500 µs (more stable signal),
-    and hardware_PWM only for pulse widths above 2500 µs (extended range servos)."""
+
+    IMPORTANT: Each servo pin must use ONE method consistently.
+    Set useHardwarePwm=True  for the chamber lid  (GPIO 18) - uses hardware_PWM()
+    Set useHardwarePwm=False for the soil dropper  (GPIO 19) - uses set_servo_pulsewidth()
+    Mixing both methods on a single pin causes jitter."""
     angle = max(0, min(180, angle))
     pulseWidth = angleToPulseWidth(angle, minUs, maxUs)
 
-    if pulseWidth <= 2500:
-        # Standard range - use set_servo_pulsewidth (cleanest signal for servos)
-        pi.set_servo_pulsewidth(pin, int(pulseWidth))
-    else:
-        # Extended range - use hardware_PWM to bypass pigpio's 2500 µs limit
+    if useHardwarePwm:
+        # Hardware PWM peripheral - no pulse width limit, used for extended-range servos
         setServoPulseRaw(pin, pulseWidth)
+    else:
+        # DMA-based PWM - limited to 500-2500 µs but produces the cleanest signal
+        pi.set_servo_pulsewidth(pin, int(pulseWidth))
 
 
 def stopAllMotors():
@@ -285,9 +294,9 @@ def stopAllMotors():
     pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
 
     # Turn off servo PWM signals (servos will hold last position or relax)
-    # Chamber lid: clear both methods since we don't know which is active
-    pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
+    # Chamber lid: hardware_PWM ONLY (never use set_servo_pulsewidth on this pin)
     pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
+    # Soil dropper: set_servo_pulsewidth ONLY (never use hardware_PWM on this pin)
     pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
 
     # Reset state
@@ -326,7 +335,7 @@ def stopSingleMotor(motorNum):
         print("[INFO] Platform Motor stopped.")
 
     elif motorNum == 3:
-        pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
+        # Hardware PWM ONLY - never call set_servo_pulsewidth on this pin
         pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
         chamberLidActive = False
         chamberLidAngle = 0
@@ -542,7 +551,7 @@ def handleMotorCommand(motorNum):
 
         chamberLidActive = True
         chamberLidAngle = angle
-        setServoAngle(CHAMBER_LID_PIN, chamberLidAngle, CHAMBER_LID_MIN_US, CHAMBER_LID_MAX_US)
+        setServoAngle(CHAMBER_LID_PIN, chamberLidAngle, CHAMBER_LID_MIN_US, CHAMBER_LID_MAX_US, useHardwarePwm=True)
         infoLine = f"[INFO] Chamber Lid angle set to {chamberLidAngle}°"
         print(infoLine)
 
@@ -710,8 +719,9 @@ finally:
     # Send neutral / off signals before shutting down
     pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)
     pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
-    pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
+    # Chamber lid: hardware_PWM ONLY (never set_servo_pulsewidth on this pin)
     pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
+    # Soil dropper: set_servo_pulsewidth ONLY
     pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
     time.sleep(0.1)  # Brief pause to let the signals settle
 
