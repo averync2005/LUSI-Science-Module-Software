@@ -311,10 +311,10 @@ def setServoAngle(pin, angle, minUs, maxUs):
     if pin == CHAMBER_LID_PIN:
         # 0° -> turn signal off
         if angle <= 0:
-            setChamberLidPulse(0)
+            pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
             return
-        # All nonzero angles -> wave API (DMA waveform)
-        setChamberLidPulse(pulseWidth)
+        # All nonzero angles -> set_servo_pulsewidth (for debug)
+        pi.set_servo_pulsewidth(CHAMBER_LID_PIN, int(pulseWidth))
     else:
         pi.set_servo_pulsewidth(pin, int(pulseWidth))
 
