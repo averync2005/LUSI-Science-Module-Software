@@ -108,10 +108,12 @@ SPARK_MAX_REV_US = 1000  # Full speed reverse
 # To calibrate: run 'pigs s <PIN> <PULSE>' on the Pi and adjust until
 # the servo physically reaches 0° at MIN and 180° at MAX.
 #
-# Chamber Lid servo - wider range because this servo only moves ~90°
-# over the standard 500-2500 µs range (so we double the range)
+# Chamber Lid servo - this servo only rotates ~90° over the standard
+# 500-2500 µs range, so we extend to 4500 µs to reach 180° physically.
+# Uses pi.hardware_PWM() instead of set_servo_pulsewidth() to bypass
+# pigpio's 500-2500 µs hard limit.
 CHAMBER_LID_MIN_US = 500   # 0° position
-CHAMBER_LID_MAX_US = 4500  # 180° position (servo will stop at its physical limit)
+CHAMBER_LID_MAX_US = 4500  # 180° position
 #
 # Soil Dropper servo (SG92R) - standard range
 SOIL_DROP_MIN_US = 500   # 0° position
@@ -177,7 +179,7 @@ if not pi.connected:
 
 pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)  # NEO 550 - start at neutral
 pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)  # NEO 550 - start at neutral
-pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)  # Servo - signal off
+pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)  # Servo - signal off (uses hardware_PWM)
 pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)  # Servo - signal off
 
 
@@ -245,13 +247,31 @@ def setSparkMotor(pin, speedPct, direction="forward"):
     pi.set_servo_pulsewidth(pin, pulseWidth)
 
 
+def setServoPulseRaw(pin, pulseWidthUs):
+    """Send a servo pulse using hardware_PWM (bypasses pigpio's 500-2500 µs limit).
+    Works on GPIO 12, 13, 18, 19 on Raspberry Pi 4. Set pulseWidthUs=0 to turn off."""
+    if pulseWidthUs <= 0:
+        pi.hardware_PWM(pin, 0, 0)
+    else:
+        # At 50 Hz the period is 20000 µs. Convert to parts-per-million duty cycle.
+        dutyPpm = int((pulseWidthUs / 20000.0) * 1000000)
+        pi.hardware_PWM(pin, 50, dutyPpm)
+
+
 def setServoAngle(pin, angle, minUs, maxUs):
     """Move a servo motor to the specified angle (0-180°), then cut the signal to prevent jitter."""
     angle = max(0, min(180, angle))
     pulseWidth = angleToPulseWidth(angle, minUs, maxUs)
-    pi.set_servo_pulsewidth(pin, pulseWidth)
-    time.sleep(0.5)  # Give the servo time to reach the target position
-    pi.set_servo_pulsewidth(pin, 0)  # Cut the signal to stop jitter
+
+    # Use hardware_PWM for servos that need pulse widths beyond the 500-2500 µs limit
+    if maxUs > 2500:
+        setServoPulseRaw(pin, pulseWidth)
+        time.sleep(0.5)
+        setServoPulseRaw(pin, 0)
+    else:
+        pi.set_servo_pulsewidth(pin, int(pulseWidth))
+        time.sleep(0.5)
+        pi.set_servo_pulsewidth(pin, 0)
 
 
 def stopAllMotors():
@@ -266,7 +286,7 @@ def stopAllMotors():
     pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
 
     # Turn off servo PWM signals (servos will hold last position or relax)
-    pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
+    pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
     pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
 
     # Reset state
@@ -305,7 +325,7 @@ def stopSingleMotor(motorNum):
         print("[INFO] Platform Motor stopped.")
 
     elif motorNum == 3:
-        pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
+        pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
         chamberLidActive = False
         chamberLidAngle = 0
         print("[INFO] Chamber Lid Servo stopped.")
@@ -688,7 +708,7 @@ finally:
     # Send neutral / off signals before shutting down
     pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)
     pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
-    pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
+    pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
     pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
     time.sleep(0.1)  # Brief pause to let the signals settle
 
