@@ -104,9 +104,18 @@ SPARK_MAX_FWD_US = 2000  # Full speed forward
 SPARK_MAX_REV_US = 1000  # Full speed reverse
 
 # Servo pulse width boundaries (microseconds)
-# Adjust these if your servos don't reach the full 0-180° range
-SERVO_MIN_US = 500  # 0° position
-SERVO_MAX_US = 2500  # 180° position
+# Each servo may need different values to map 0-180° correctly.
+# To calibrate: run 'pigs s <PIN> <PULSE>' on the Pi and adjust until
+# the servo physically reaches 0° at MIN and 180° at MAX.
+#
+# Chamber Lid servo - wider range because this servo only moves ~90°
+# over the standard 500-2500 µs range (so we double the range)
+CHAMBER_LID_MIN_US = 500   # 0° position
+CHAMBER_LID_MAX_US = 4500  # 180° position (servo will stop at its physical limit)
+#
+# Soil Dropper servo (SG92R) - standard range
+SOIL_DROP_MIN_US = 500   # 0° position
+SOIL_DROP_MAX_US = 2500  # 180° position
 
 
 
@@ -203,20 +212,21 @@ def speedToPulseWidth(speedPct, direction="forward"):
 # Helper Function - Convert Angle to Servo Pulse Width
 #
 #   Parameters:
-#       angle (int) - desired servo angle in degrees, 0 to 180
+#       angle (int)  - desired servo angle in degrees, 0 to 180
+#       minUs (int)  - pulse width in µs for 0° (from the per-servo constant)
+#       maxUs (int)  - pulse width in µs for 180° (from the per-servo constant)
 #
 #   Returns:
 #       int - the pulse width in microseconds to send to the servo
 #
 #   How it works:
-#       pulseWidth = 500 + (angle / 180) × 2000
-#       This maps 0° --> 500 µs, 90° --> 1500 µs, 180° --> 2500 µs
+#       pulseWidth = minUs + (angle / 180) × (maxUs - minUs)
 #####################################################################################################################
 
-def angleToPulseWidth(angle):
+def angleToPulseWidth(angle, minUs, maxUs):
     """Convert an angle in degrees to a servo pulse width in µs."""
     angle = max(0, min(180, angle))  # Clamp the angle to the valid range
-    return SERVO_MIN_US + (angle / 180.0) * (SERVO_MAX_US - SERVO_MIN_US)
+    return minUs + (angle / 180.0) * (maxUs - minUs)
 
 
 
@@ -235,10 +245,10 @@ def setSparkMotor(pin, speedPct, direction="forward"):
     pi.set_servo_pulsewidth(pin, pulseWidth)
 
 
-def setServoAngle(pin, angle):
+def setServoAngle(pin, angle, minUs, maxUs):
     """Move a servo motor to the specified angle (0-180°), then cut the signal to prevent jitter."""
     angle = max(0, min(180, angle))
-    pulseWidth = angleToPulseWidth(angle)
+    pulseWidth = angleToPulseWidth(angle, minUs, maxUs)
     pi.set_servo_pulsewidth(pin, pulseWidth)
     time.sleep(0.5)  # Give the servo time to reach the target position
     pi.set_servo_pulsewidth(pin, 0)  # Cut the signal to stop jitter
@@ -510,7 +520,7 @@ def handleMotorCommand(motorNum):
 
         chamberLidActive = True
         chamberLidAngle = angle
-        setServoAngle(CHAMBER_LID_PIN, chamberLidAngle)
+        setServoAngle(CHAMBER_LID_PIN, chamberLidAngle, CHAMBER_LID_MIN_US, CHAMBER_LID_MAX_US)
         infoLine = f"[INFO] Chamber Lid angle set to {chamberLidAngle}°"
         print(infoLine)
 
@@ -536,7 +546,7 @@ def handleMotorCommand(motorNum):
 
         soilDropActive = True
         soilDropAngle = angle
-        setServoAngle(SOIL_DROP_PIN, soilDropAngle)
+        setServoAngle(SOIL_DROP_PIN, soilDropAngle, SOIL_DROP_MIN_US, SOIL_DROP_MAX_US)
         infoLine = f"[INFO] Soil Dropper angle set to {soilDropAngle}°"
         print(infoLine)
 
