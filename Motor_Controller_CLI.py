@@ -259,18 +259,18 @@ def setServoPulseRaw(pin, pulseWidthUs):
 
 
 def setServoAngle(pin, angle, minUs, maxUs):
-    """Move a servo motor to the specified angle (0-180°), then cut the signal to prevent jitter."""
+    """Move a servo motor to the specified angle (0-180°).
+    Uses set_servo_pulsewidth for pulse widths within 500-2500 µs (more stable signal),
+    and hardware_PWM only for pulse widths above 2500 µs (extended range servos)."""
     angle = max(0, min(180, angle))
     pulseWidth = angleToPulseWidth(angle, minUs, maxUs)
 
-    # Use hardware_PWM for servos that need pulse widths beyond the 500-2500 µs limit
-    if maxUs > 2500:
-        # Keep the signal running continuously - this servo needs it to hold position
-        setServoPulseRaw(pin, pulseWidth)
-    else:
+    if pulseWidth <= 2500:
+        # Standard range - use set_servo_pulsewidth (cleanest signal for servos)
         pi.set_servo_pulsewidth(pin, int(pulseWidth))
-        time.sleep(2.0)
-        pi.set_servo_pulsewidth(pin, 0)
+    else:
+        # Extended range - use hardware_PWM to bypass pigpio's 2500 µs limit
+        setServoPulseRaw(pin, pulseWidth)
 
 
 def stopAllMotors():
@@ -285,6 +285,8 @@ def stopAllMotors():
     pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
 
     # Turn off servo PWM signals (servos will hold last position or relax)
+    # Chamber lid: clear both methods since we don't know which is active
+    pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
     pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
     pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
 
@@ -324,6 +326,7 @@ def stopSingleMotor(motorNum):
         print("[INFO] Platform Motor stopped.")
 
     elif motorNum == 3:
+        pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
         pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
         chamberLidActive = False
         chamberLidAngle = 0
@@ -707,6 +710,7 @@ finally:
     # Send neutral / off signals before shutting down
     pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)
     pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
+    pi.set_servo_pulsewidth(CHAMBER_LID_PIN, 0)
     pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
     pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
     time.sleep(0.1)  # Brief pause to let the signals settle
