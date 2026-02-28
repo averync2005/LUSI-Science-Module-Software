@@ -1,3 +1,11 @@
+# Move servo_test.py to archive/
+import os
+import shutil
+
+src = os.path.join(os.path.dirname(__file__), 'servo_test.py')
+dst = os.path.join(os.path.dirname(__file__), 'archive', 'servo_test.py')
+if os.path.exists(src):
+    shutil.move(src, dst)
 
 import time
 import pigpio

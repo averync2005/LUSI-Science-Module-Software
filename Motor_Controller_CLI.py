@@ -119,7 +119,7 @@ SPARK_MAX_REV_US = 1000  # Full speed reverse
 #   - 0° : signal OFF (no hunting at the floor)
 #   - >0°: wave API only (clean DMA waveform, no upper limit)
 CHAMBER_LID_MIN_US = 500   # 0° position
-CHAMBER_LID_MAX_US = 4500  # 180° position
+CHAMBER_LID_MAX_US = 2500  # 180° position (pigpio limit)
 #
 # Soil Dropper servo (SG92R) - standard 500-2500 µs range.
 # Uses set_servo_pulsewidth (DMA-based, cleanest built-in method).
