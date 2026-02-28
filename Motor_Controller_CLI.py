@@ -236,10 +236,12 @@ def setSparkMotor(pin, speedPct, direction="forward"):
 
 
 def setServoAngle(pin, angle):
-    """Move a servo motor to the specified angle (0-180°)."""
+    """Move a servo motor to the specified angle (0-180°), then cut the signal to prevent jitter."""
     angle = max(0, min(180, angle))
     pulseWidth = angleToPulseWidth(angle)
     pi.set_servo_pulsewidth(pin, pulseWidth)
+    time.sleep(0.5)  # Give the servo time to reach the target position
+    pi.set_servo_pulsewidth(pin, 0)  # Cut the signal to stop jitter
 
 
 def stopAllMotors():
