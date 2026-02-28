@@ -265,12 +265,11 @@ def setServoAngle(pin, angle, minUs, maxUs):
 
     # Use hardware_PWM for servos that need pulse widths beyond the 500-2500 µs limit
     if maxUs > 2500:
+        # Keep the signal running continuously - this servo needs it to hold position
         setServoPulseRaw(pin, pulseWidth)
-        time.sleep(0.5)
-        setServoPulseRaw(pin, 0)
     else:
         pi.set_servo_pulsewidth(pin, int(pulseWidth))
-        time.sleep(0.5)
+        time.sleep(2.0)
         pi.set_servo_pulsewidth(pin, 0)
 
 
