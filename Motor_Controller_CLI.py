@@ -105,23 +105,24 @@ SPARK_MAX_REV_US = 1000  # Full speed reverse
 
 # Servo pulse width boundaries (microseconds)
 # Each servo may need different values to map 0-180° correctly.
-# To calibrate: run 'pigs hp <PIN> 50 <DUTY>' on the Pi for the chamber lid
-# (hardware PWM), or 'pigs s <PIN> <PULSE>' for the soil dropper.
+# To calibrate: run 'pigs s <PIN> <PULSE>' for standard servos, or
+# adjust the MIN/MAX constants below and test through the CLI.
 #
-# IMPORTANT - PWM method per servo:
-#   Chamber Lid (GPIO 18): uses ONLY pi.hardware_PWM()  (hardware PWM peripheral)
-#   Soil Dropper (GPIO 19): uses ONLY pi.set_servo_pulsewidth()  (DMA-based PWM)
-#   NEVER mix both methods on the same pin - they use different hardware and
-#   will fight each other, causing the servo to jitter uncontrollably.
+# PWM method per servo:
+#   Chamber Lid (GPIO 18): uses pigpio WAVE API (DMA-timed, no pulse width limit)
+#   Soil Dropper (GPIO 19): uses pi.set_servo_pulsewidth() (DMA-timed, 500-2500 µs)
+#   Both methods use the Pi's DMA hardware for jitter-free pulse generation.
+#   NEVER use pi.hardware_PWM() for servos - it uses a different clock
+#   peripheral that produces jittery signals unsuitable for servo control.
 #
 # Chamber Lid servo (SM-S2309S) - this servo only rotates ~90° over the
 # standard 500-2500 µs range, so we extend to 4500 µs to reach 180°.
-# Uses hardware_PWM exclusively (no pulse width limit).
+# Uses the wave API (DMA waveforms) which has no pulse width restriction.
 CHAMBER_LID_MIN_US = 500   # 0° position
 CHAMBER_LID_MAX_US = 4500  # 180° position
 #
 # Soil Dropper servo (SG92R) - standard 500-2500 µs range.
-# Uses set_servo_pulsewidth exclusively (cleanest DMA signal).
+# Uses set_servo_pulsewidth (DMA-based, cleanest built-in method).
 SOIL_DROP_MIN_US = 500   # 0° position
 SOIL_DROP_MAX_US = 2500  # 180° position
 
@@ -150,6 +151,7 @@ platformDirection = "up"  # "up" (forward) or "down" (reverse)
 # Motor 3 - Chamber lid servo
 chamberLidActive = False
 chamberLidAngle = 0  # 0-180°
+chamberLidWaveId = -1  # Tracks the active DMA waveform ID (-1 = no wave)
 
 # Motor 4 - Soil dropper servo
 soilDropActive = False
@@ -185,8 +187,9 @@ if not pi.connected:
 
 pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)  # NEO 550 - start at neutral
 pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)  # NEO 550 - start at neutral
-pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)  # Servo off (hardware PWM ONLY on this pin)
-pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)  # Servo off (DMA PWM ONLY on this pin)
+pi.wave_clear()  # Clear any leftover DMA waveforms from previous runs
+pi.write(CHAMBER_LID_PIN, 0)  # Chamber lid servo - ensure pin is LOW
+pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)  # Soil dropper servo - signal off
 
 
 
@@ -253,32 +256,61 @@ def setSparkMotor(pin, speedPct, direction="forward"):
     pi.set_servo_pulsewidth(pin, pulseWidth)
 
 
-def setServoPulseRaw(pin, pulseWidthUs):
-    """Send a servo pulse using hardware_PWM (bypasses pigpio's 500-2500 µs limit).
-    Works on GPIO 12, 13, 18, 19 on Raspberry Pi 4. Set pulseWidthUs=0 to turn off."""
+def setChamberLidPulse(pulseWidthUs):
+    """Send a servo pulse to the chamber lid using DMA waveforms.
+
+    Uses pigpio's wave API which generates DMA-timed pulses identical in
+    quality to set_servo_pulsewidth, but with no 500-2500 µs restriction.
+    This avoids the jitter caused by hardware_PWM (which uses a different
+    clock peripheral not designed for servo control).
+
+    Set pulseWidthUs=0 to stop the signal."""
+    global chamberLidWaveId
+
     if pulseWidthUs <= 0:
-        pi.hardware_PWM(pin, 0, 0)
-    else:
-        # At 50 Hz the period is 20000 µs. Convert to parts-per-million duty cycle.
-        dutyPpm = int((pulseWidthUs / 20000.0) * 1000000)
-        pi.hardware_PWM(pin, 50, dutyPpm)
+        # Stop any active wave transmission
+        pi.wave_tx_stop()
+        if chamberLidWaveId >= 0:
+            pi.wave_delete(chamberLidWaveId)
+            chamberLidWaveId = -1
+        # Ensure pin is LOW after stopping
+        pi.write(CHAMBER_LID_PIN, 0)
+        return
+
+    # Build a repeating 50 Hz waveform: HIGH for pulseWidth, LOW for remainder
+    pulseWidthUs = int(pulseWidthUs)
+    offTimeUs = 20000 - pulseWidthUs  # 50 Hz period = 20000 µs
+
+    pi.wave_add_generic([
+        pigpio.pulse(1 << CHAMBER_LID_PIN, 0, pulseWidthUs),   # Pin HIGH
+        pigpio.pulse(0, 1 << CHAMBER_LID_PIN, offTimeUs)       # Pin LOW
+    ])
+
+    newWaveId = pi.wave_create()
+    pi.wave_send_repeat(newWaveId)
+
+    # Delete old wave after new one has started
+    if chamberLidWaveId >= 0:
+        time.sleep(0.002)  # Brief pause to let new wave take over
+        pi.wave_delete(chamberLidWaveId)
+
+    chamberLidWaveId = newWaveId
 
 
-def setServoAngle(pin, angle, minUs, maxUs, useHardwarePwm=False):
+def setServoAngle(pin, angle, minUs, maxUs):
     """Move a servo motor to the specified angle (0-180°).
 
-    IMPORTANT: Each servo pin must use ONE method consistently.
-    Set useHardwarePwm=True  for the chamber lid  (GPIO 18) - uses hardware_PWM()
-    Set useHardwarePwm=False for the soil dropper  (GPIO 19) - uses set_servo_pulsewidth()
-    Mixing both methods on a single pin causes jitter."""
+    Automatically routes to the correct PWM method based on pin:
+      Chamber lid (GPIO 18) --> DMA waveform (wave API, no pulse width limit)
+      All other servos       --> set_servo_pulsewidth (DMA, 500-2500 µs)"""
     angle = max(0, min(180, angle))
     pulseWidth = angleToPulseWidth(angle, minUs, maxUs)
 
-    if useHardwarePwm:
-        # Hardware PWM peripheral - no pulse width limit, used for extended-range servos
-        setServoPulseRaw(pin, pulseWidth)
+    if pin == CHAMBER_LID_PIN:
+        # DMA waveform - no pulse width restriction, jitter-free
+        setChamberLidPulse(pulseWidth)
     else:
-        # DMA-based PWM - limited to 500-2500 µs but produces the cleanest signal
+        # Standard DMA servo control - limited to 500-2500 µs
         pi.set_servo_pulsewidth(pin, int(pulseWidth))
 
 
@@ -294,9 +326,9 @@ def stopAllMotors():
     pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
 
     # Turn off servo PWM signals (servos will hold last position or relax)
-    # Chamber lid: hardware_PWM ONLY (never use set_servo_pulsewidth on this pin)
-    pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
-    # Soil dropper: set_servo_pulsewidth ONLY (never use hardware_PWM on this pin)
+    # Chamber lid: stop the DMA waveform
+    setChamberLidPulse(0)
+    # Soil dropper: standard servo control
     pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
 
     # Reset state
@@ -335,8 +367,8 @@ def stopSingleMotor(motorNum):
         print("[INFO] Platform Motor stopped.")
 
     elif motorNum == 3:
-        # Hardware PWM ONLY - never call set_servo_pulsewidth on this pin
-        pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
+        # Stop the DMA waveform driving the chamber lid servo
+        setChamberLidPulse(0)
         chamberLidActive = False
         chamberLidAngle = 0
         print("[INFO] Chamber Lid Servo stopped.")
@@ -551,7 +583,7 @@ def handleMotorCommand(motorNum):
 
         chamberLidActive = True
         chamberLidAngle = angle
-        setServoAngle(CHAMBER_LID_PIN, chamberLidAngle, CHAMBER_LID_MIN_US, CHAMBER_LID_MAX_US, useHardwarePwm=True)
+        setServoAngle(CHAMBER_LID_PIN, chamberLidAngle, CHAMBER_LID_MIN_US, CHAMBER_LID_MAX_US)
         infoLine = f"[INFO] Chamber Lid angle set to {chamberLidAngle}°"
         print(infoLine)
 
@@ -719,9 +751,11 @@ finally:
     # Send neutral / off signals before shutting down
     pi.set_servo_pulsewidth(AUGER_PIN, SPARK_NEUTRAL_US)
     pi.set_servo_pulsewidth(PLATFORM_PIN, SPARK_NEUTRAL_US)
-    # Chamber lid: hardware_PWM ONLY (never set_servo_pulsewidth on this pin)
-    pi.hardware_PWM(CHAMBER_LID_PIN, 0, 0)
-    # Soil dropper: set_servo_pulsewidth ONLY
+    # Chamber lid: stop the DMA waveform and ensure pin is LOW
+    pi.wave_tx_stop()
+    pi.wave_clear()
+    pi.write(CHAMBER_LID_PIN, 0)
+    # Soil dropper: standard servo control
     pi.set_servo_pulsewidth(SOIL_DROP_PIN, 0)
     time.sleep(0.1)  # Brief pause to let the signals settle
 
