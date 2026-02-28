@@ -1,8 +1,10 @@
+
 import time
 import pigpio
 
 SERVO_PIN = 18  # Chamber lid servo GPIO
-PULSE_WIDTH = 1500  # Try 500, 1000, 1500, 2000, 2500, 3000, 4000, 4500
+PULSE_WIDTHS = [500, 1000, 1500, 2000, 2500, 3000, 4000, 4500]
+HOLD_TIME = 3  # seconds to hold each position
 
 pi = pigpio.pi()
 if not pi.connected:
@@ -10,10 +12,12 @@ if not pi.connected:
     exit(1)
 
 try:
-    print(f"Setting servo on GPIO {SERVO_PIN} to {PULSE_WIDTH} µs. Press Ctrl+C to stop.")
-    pi.set_servo_pulsewidth(SERVO_PIN, PULSE_WIDTH)
+    print(f"Sweeping servo on GPIO {SERVO_PIN} through pulse widths: {PULSE_WIDTHS} µs")
     while True:
-        time.sleep(1)
+        for pw in PULSE_WIDTHS:
+            print(f"Setting pulse width: {pw} µs")
+            pi.set_servo_pulsewidth(SERVO_PIN, pw)
+            time.sleep(HOLD_TIME)
 except KeyboardInterrupt:
     pass
 finally:
